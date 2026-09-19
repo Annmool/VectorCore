@@ -4,11 +4,15 @@
 
 **A High-Performance Mini Vector Database & Grounded RAG Engine Built Completely from Mathematical First Principles in Python & NumPy.**
 
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-VectorCore%20Console-00f59b?style=for-the-badge&logo=render&logoColor=08090b)](https://vectorcore-tz2v.onrender.com/)
+
 [![Python](https://img.shields.io/badge/Python-3.10%2B-00f59b?style=flat-square&logo=python&logoColor=08090b)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-00f59b?style=flat-square&logo=fastapi&logoColor=08090b)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-00f59b?style=flat-square&logo=docker&logoColor=08090b)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-fbbf24?style=flat-square)](LICENSE)
 [![Tests](https://img.shields.io/badge/Tests-20%2F20%20Passing-00f59b?style=flat-square)](tests/)
+
+🌐 **Live Console:** [https://vectorcore-tz2v.onrender.com](https://vectorcore-tz2v.onrender.com) &nbsp;|&nbsp; 📖 **API Docs:** [https://vectorcore-tz2v.onrender.com/docs](https://vectorcore-tz2v.onrender.com/docs)
 
 *Zero black-box wrappers (no Chroma, no Pinecone, no FAISS dependencies for indexing algorithms).*
 
