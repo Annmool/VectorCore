@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VectorCore &bull; Mini Vector Database & RAG Console</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="alternate icon" href="favicon.svg">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Slim, Sleek Left Sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+            <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
+            <polyline points="2 17 12 22 22 17"></polyline>
+            <polyline points="2 12 12 17 22 12"></polyline>
+          </svg>
+        </div>
+        <div>
+          <h1 class="brand-title">VectorCore</h1>
+          <div class="brand-subtitle">SCRATCH VECTOR DB</div>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-tab="rag-playground" id="tab-rag">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+          <span>RAG & Citations</span>
+        </button>
+
+        <button class="nav-item" data-tab="search-studio" id="tab-search">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <span>Search Studio</span>
+        </button>
+
+        <button class="nav-item" data-tab="hnsw-visualizer" id="tab-hnsw">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"></circle><circle cx="6" cy="12" r="3"></circle><circle cx="18" cy="19" r="3"></circle><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line></svg>
+          <span>HNSW Graph</span>
+        </button>
+
+        <button class="nav-item" data-tab="chunking-lab" id="tab-chunking">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
+          <span>Chunking Lab</span>
+        </button>
+
+        <button class="nav-item" data-tab="quantization-lab" id="tab-quant">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 10 14 10 20"></polyline><polyline points="20 10 14 10 14 4"></polyline><line x1="14" y1="10" x2="21" y2="3"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+          <span>Quantization (PQ)</span>
+        </button>
+
+        <button class="nav-item" data-tab="benchmark-hub" id="tab-benchmark">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"></line><line x1="12" y1="20" x2="12" y2="4"></line><line x1="6" y1="20" x2="6" y2="14"></line></svg>
+          <span>Benchmarks & Eval</span>
+        </button>
+
+        <button class="nav-item" data-tab="ingest-hub" id="tab-ingest">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+          <span>Ingestion Hub</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Telemetry Card -->
+      <div class="sidebar-status-card">
+        <div class="status-header">
+          <span>Telemetry</span>
+          <div class="live-badge">
+            <span class="pulse-indicator"></span>
+            <span>LIVE</span>
+          </div>
+        </div>
+        <div class="status-metric">
+          <span class="metric-label">Active Index</span>
+          <span class="badge" id="status-index">HNSW</span>
+        </div>
+        <div class="status-metric">
+          <span class="metric-label">Indexed Vectors</span>
+          <span class="metric-val highlight" id="status-vectors">94</span>
+        </div>
+        <div class="status-metric">
+          <span class="metric-label">Dimensions</span>
+          <span class="metric-val">384d</span>
+        </div>
+        <div class="status-metric">
+          <span class="metric-label">Cache Hit Ratio</span>
+          <span class="metric-val" id="status-cache">0.0%</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Workspace Content -->
+    <main class="main-content">
+      <!-- Top Bar -->
+      <header class="top-bar">
+        <div class="header-info">
+          <h2 class="section-title" id="current-tab-title">RAG & Grounded Citations</h2>
+          <p class="section-desc" id="current-tab-desc">Ask research questions with verified inline citations directly linked to underlying vector chunks.</p>
+        </div>
+        <div class="header-actions">
+          <div class="index-selector-container">
+            <label for="index-type-select">Algorithm:</label>
+            <select id="index-type-select" class="custom-select-sm">
+              <option value="hnsw" selected>HNSW (Hierarchical Graph)</option>
+              <option value="ivf">IVF (Inverted File / K-Means)</option>
+              <option value="flat">Flat (Brute-Force Exact)</option>
+            </select>
+          </div>
+          <button class="btn btn-secondary btn-sm" id="btn-reseed">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            Seed Papers
+          </button>
+        </div>
+      </header>
+
+      <!-- Tab 1: RAG & Citations -->
+      <section class="tab-pane active" id="pane-rag-playground">
+        <div class="rag-layout">
+          <div class="card query-card">
+            <div class="sample-queries-bar">
+              <span class="sample-label">Suggested:</span>
+              <button class="sample-chip" data-q="How does HNSW achieve logarithmic search complexity and maintain connectivity across layers?">HNSW Logarithmic Search</button>
+              <button class="sample-chip" data-q="What is Asymmetric Distance Computation in Product Quantization and how does it save memory?">Product Quantization ADC</button>
+              <button class="sample-chip" data-q="Why does BM25 use the k1 and b parameters instead of raw term frequency?">BM25 k1 & b Parameters</button>
+              <button class="sample-chip" data-q="How does FlashAttention overcome memory bandwidth bottlenecks in transformers?">FlashAttention IO-Aware</button>
+              <button class="sample-chip" data-q="How does ColBERT use late interaction and MaxSim to score passages?">ColBERT Late Interaction</button>
+              <button class="sample-chip" data-q="How does DiskANN use the Vamana graph to perform SSD-resident vector search?">DiskANN & Vamana Graph</button>
+              <button class="sample-chip" data-q="Why is RoPE (Rotary Position Embedding) widely used in modern LLMs like LLaMA?">RoPE Positional Embeddings</button>
+            </div>
+
+            <form id="rag-form" class="rag-input-form">
+              <div class="input-wrapper">
+                <textarea id="rag-query-input" placeholder="Ask a question grounded in the Vector Database..." rows="3" required></textarea>
+                <button type="submit" class="btn btn-primary btn-ask" id="btn-submit-rag">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  <span>Generate RAG Answer</span>
+                </button>
+              </div>
+
+              <div class="rag-options-row">
+                <label class="toggle-control">
+                  <input type="checkbox" id="rag-toggle-hybrid" checked>
+                  <span class="toggle-slider"></span>
+                  <span class="toggle-text">Hybrid Retrieval (Dense + BM25)</span>
+                </label>
+
+                <label class="toggle-control">
+                  <input type="checkbox" id="rag-toggle-rerank" checked>
+                  <span class="toggle-slider"></span>
+                  <span class="toggle-text">Cross-Encoder Reranker</span>
+                </label>
+
+                <div class="inline-select">
+                  <span>Top-K:</span>
+                  <select id="rag-topk-select" class="custom-select-sm">
+                    <option value="3">3</option>
+                    <option value="5" selected>5</option>
+                    <option value="8">8</option>
+                  </select>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <div class="rag-results-grid">
+            <div class="card answer-card" id="rag-answer-container">
+              <div class="card-header">
+                <div class="header-with-badge">
+                  <h3 class="card-title">Synthesized Answer</h3>
+                  <span class="badge badge-engine" id="rag-engine-badge">Engine: Extractive Synthesizer</span>
+                  <span class="badge badge-cache" id="rag-cache-badge" style="display:none;">Cache Hit</span>
+                </div>
+                <div class="quality-badges" id="rag-quality-container"></div>
+              </div>
+
+              <div class="answer-body" id="rag-answer-text">
+                <div class="placeholder-state">
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+                  <p>Ask a question or select a sample above to execute vector retrieval, reranking, and citation generation.</p>
+                </div>
+              </div>
+
+              <div class="latency-waterfall" id="rag-latency-breakdown" style="display:none;">
+                <h4 class="waterfall-title">End-to-End Latency Breakdown</h4>
+                <div class="waterfall-bars">
+                  <div class="stage-info-row">
+                    <div class="stage-info"><span>1. Hybrid Search</span><span class="stage-time" id="time-retrieval">0ms</span></div>
+                    <div class="bar-track"><div class="bar-fill bar-blue" id="fill-retrieval" style="width: 0%;"></div></div>
+                  </div>
+                  <div class="stage-info-row">
+                    <div class="stage-info"><span>2. Cross-Encoder Rerank</span><span class="stage-time" id="time-rerank">0ms</span></div>
+                    <div class="bar-track"><div class="bar-fill bar-purple" id="fill-rerank" style="width: 0%;"></div></div>
+                  </div>
+                  <div class="stage-info-row">
+                    <div class="stage-info"><span>3. Citation Grounding</span><span class="stage-time" id="time-gen">0ms</span></div>
+                    <div class="bar-track"><div class="bar-fill bar-green" id="fill-gen" style="width: 0%;"></div></div>
+                  </div>
+                </div>
+                <div class="waterfall-total">
+                  <span>Total Latency:</span>
+                  <strong id="time-total">0.0ms</strong>
+                </div>
+              </div>
+            </div>
+
+            <div class="card citations-card" id="rag-citations-container">
+              <div class="card-header">
+                <h3 class="card-title">Retrieved Evidence</h3>
+                <span class="badge" id="citations-count">0 Sources</span>
+              </div>
+              <div class="citations-list" id="citations-list-body">
+                <div class="placeholder-state-sm">
+                  <p>Retrieved vector passages and relevance scores will appear here.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 2: Search Studio -->
+      <section class="tab-pane" id="pane-search-studio">
+        <div class="search-lab-layout">
+          <div class="card search-control-card">
+            <div class="search-input-group">
+              <input type="text" id="studio-query-input" placeholder="Search concept or exact keywords (e.g., 'FlashAttention IO-aware', 'Voronoi clustering')..." class="custom-input">
+              <button class="btn btn-primary" id="btn-studio-search">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <span>Run Multi-Search</span>
+              </button>
+            </div>
+
+            <div class="search-filter-row">
+              <div class="filter-group">
+                <label>Fusion Mode:</label>
+                <select id="studio-fusion-mode" class="custom-select-sm">
+                  <option value="rrf" selected>Reciprocal Rank Fusion (RRF)</option>
+                  <option value="convex">Convex Linear Combination</option>
+                </select>
+              </div>
+
+              <div class="filter-group">
+                <label>Dense Weight (&alpha;): <span id="alpha-val-display" style="font-family: var(--font-mono); color: #818cf8;">0.65</span></label>
+                <input type="range" id="studio-alpha-slider" min="0" max="1" step="0.05" value="0.65" class="custom-range">
+              </div>
+
+              <div class="filter-group">
+                <label>Year Filter:</label>
+                <select id="studio-year-filter" class="custom-select-sm">
+                  <option value="all" selected>All Years</option>
+                  <option value="2018">>= 2018</option>
+                  <option value="2020">>= 2020</option>
+                  <option value="2022">>= 2022</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div class="multi-strategy-grid">
+            <div class="strategy-col card">
+              <div class="strategy-header col-dense">
+                <h4>Dense Vector Search</h4>
+                <span class="strategy-badge" id="dense-time-badge">0ms</span>
+              </div>
+              <div class="strategy-results" id="dense-results-col">
+                <p class="empty-hint">Execute search to inspect rankings.</p>
+              </div>
+            </div>
+
+            <div class="strategy-col card">
+              <div class="strategy-header col-bm25">
+                <h4>Sparse BM25 Search</h4>
+                <span class="strategy-badge" id="bm25-time-badge">0ms</span>
+              </div>
+              <div class="strategy-results" id="bm25-results-col">
+                <p class="empty-hint">Execute search to inspect rankings.</p>
+              </div>
+            </div>
+
+            <div class="strategy-col card">
+              <div class="strategy-header col-hybrid">
+                <h4>Hybrid RRF Fusion</h4>
+                <span class="strategy-badge" id="hybrid-time-badge">0ms</span>
+              </div>
+              <div class="strategy-results" id="hybrid-results-col">
+                <p class="empty-hint">Execute search to inspect rankings.</p>
+              </div>
+            </div>
+
+            <div class="strategy-col card">
+              <div class="strategy-header col-rerank">
+                <h4>Neural Reranked (Top-5)</h4>
+                <span class="strategy-badge" id="rerank-time-badge">0ms</span>
+              </div>
+              <div class="strategy-results" id="rerank-results-col">
+                <p class="empty-hint">Execute search to inspect rankings.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 3: HNSW Graph Visualizer -->
+      <section class="tab-pane" id="pane-hnsw-visualizer">
+        <div class="hnsw-layout">
+          <div class="card visualizer-controls">
+            <div class="vis-header-row">
+              <div class="hnsw-stats-banner" id="hnsw-stats-row"></div>
+              <button class="btn btn-secondary btn-sm" id="btn-refresh-hnsw">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Refresh Graph
+              </button>
+            </div>
+
+            <div class="graph-legend">
+              <div class="legend-item"><span class="legend-dot dot-ep"></span> Global Entry Point (Layer max)</div>
+              <div class="legend-item"><span class="legend-dot dot-l2"></span> Higher Layers (Express Skip-edges)</div>
+              <div class="legend-item"><span class="legend-dot dot-l0"></span> Base Layer 0 (Dense Graph)</div>
+              <span style="color: var(--text-dim); margin-left: auto; font-size: 0.72rem;">Hover nodes to inspect metadata</span>
+            </div>
+
+            <canvas id="hnsw-canvas" width="1100" height="480"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 4: Chunking Comparator -->
+      <section class="tab-pane" id="pane-chunking-lab">
+        <div class="chunking-layout">
+          <div class="card chunking-input-card">
+            <h3 class="card-title">Chunking Strategy Comparison Lab</h3>
+            <p class="card-desc">Evaluate Fixed-Size, Sentence-Boundary, and Semantic Distance Gradient chunking side-by-side.</p>
+            
+            <textarea id="chunking-text-input" rows="7" class="custom-textarea" placeholder="Paste sample text or paper section here..."></textarea>
+            
+            <div class="chunking-btn-row">
+              <button class="btn btn-secondary btn-sm" id="btn-load-sample-text">Load Sample AI Research Text</button>
+              <button class="btn btn-primary" id="btn-run-chunking-compare">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect></svg>
+                <span>Compare 3 Strategies</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="chunk-comparison-grid" id="chunk-comparison-container" style="display:none;">
+            <div class="card chunk-card-column">
+              <div class="chunk-col-header header-fixed">
+                <h4>1. Fixed-Size Chunking</h4>
+                <div class="chunk-stat-pills" id="stats-fixed"></div>
+              </div>
+              <div class="chunk-items-list" id="list-fixed-chunks"></div>
+            </div>
+
+            <div class="card chunk-card-column">
+              <div class="chunk-col-header header-sentence">
+                <h4>2. Sentence-Boundary</h4>
+                <div class="chunk-stat-pills" id="stats-sentence"></div>
+              </div>
+              <div class="chunk-items-list" id="list-sentence-chunks"></div>
+            </div>
+
+            <div class="card chunk-card-column">
+              <div class="chunk-col-header header-semantic">
+                <h4>3. Semantic Distance Chunking</h4>
+                <div class="chunk-stat-pills" id="stats-semantic"></div>
+              </div>
+              <div class="chunk-items-list" id="list-semantic-chunks"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 5: Quantization Lab -->
+      <section class="tab-pane" id="pane-quantization-lab">
+        <div class="quant-layout">
+          <div class="card">
+            <h3 class="card-title">Vector Quantization & Memory Compression</h3>
+            <p class="card-desc">Quantize high-dimensional embeddings to shrink memory footprint with minimal retrieval loss.</p>
+
+            <div class="quant-action-grid">
+              <div class="quant-option-card">
+                <div class="quant-head">
+                  <h4>Int8 Scalar Quantization</h4>
+                  <span class="badge">4x Compression</span>
+                </div>
+                <p class="card-desc">Maps 32-bit floats into signed 8-bit integers with calibrated scale factors.</p>
+                <div class="quant-metrics-box" id="int8-metrics-box">
+                  <div class="metric-row"><span>Status:</span> <strong>Ready</strong></div>
+                </div>
+                <button class="btn btn-primary btn-block" id="btn-run-int8">Run Int8 Scalar Quantization</button>
+              </div>
+
+              <div class="quant-option-card">
+                <div class="quant-head">
+                  <h4>Product Quantization (PQ)</h4>
+                  <span class="badge">8x - 32x Compression</span>
+                </div>
+                <p class="card-desc">Decomposes vector into M sub-spaces with K-Means codebooks and ADC lookup tables.</p>
+                <div class="inline-select" style="margin-bottom: 12px;">
+                  <span>Sub-vectors (M):</span>
+                  <select id="pq-m-select" class="custom-select-sm">
+                    <option value="4">M=4 (96-byte ADC)</option>
+                    <option value="8" selected>M=8 (48-byte ADC)</option>
+                    <option value="16">M=16 (24-byte ADC)</option>
+                  </select>
+                </div>
+                <div class="quant-metrics-box" id="pq-metrics-box">
+                  <div class="metric-row"><span>Status:</span> <strong>Ready</strong></div>
+                </div>
+                <button class="btn btn-primary btn-block" id="btn-run-pq">Train & Quantize with Product Quantization</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 6: Benchmarks & Evaluation -->
+      <section class="tab-pane" id="pane-benchmark-hub">
+        <div class="bench-layout">
+          <div class="card">
+            <div class="bench-header-row">
+              <div>
+                <h3 class="card-title">Algorithm Benchmark: Speed vs. Recall Tradeoff</h3>
+                <p class="card-desc">Benchmark custom Flat, IVF, and HNSW indexes against C++ FAISS baselines.</p>
+              </div>
+              <button class="btn btn-primary" id="btn-run-benchmark">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>Run Benchmark Suite</span>
+              </button>
+            </div>
+
+            <div class="benchmark-table-wrapper" id="benchmark-results-container">
+              <p class="empty-hint">Click 'Run Benchmark Suite' to execute queries across Flat, IVF, HNSW, and FAISS.</p>
+            </div>
+          </div>
+
+          <div class="card" style="margin-top: 20px;">
+            <div class="bench-header-row">
+              <div>
+                <h3 class="card-title">Information Retrieval Evaluation (Recall@K, MRR, NDCG)</h3>
+                <p class="card-desc">Measure ground-truth accuracy against the 15-question research benchmark QA test suite.</p>
+              </div>
+              <button class="btn btn-secondary" id="btn-run-eval">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"></polyline><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+                <span>Run Evaluation Dataset</span>
+              </button>
+            </div>
+
+            <div class="eval-metrics-grid" id="eval-metrics-container">
+              <p class="empty-hint">Click 'Run Evaluation Dataset' to compute Recall@1, Recall@5, MRR, MAP, and NDCG.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 7: Ingestion Hub -->
+      <section class="tab-pane" id="pane-ingest-hub">
+        <div class="ingest-layout">
+          <div class="card">
+            <h3 class="card-title">Upload & Ingest Custom Documents</h3>
+            <p class="card-desc">Upload PDFs, Markdown files, Python code, or Plaintext to expand the vector index.</p>
+            
+            <form id="upload-form" class="upload-form">
+              <div class="drop-zone" id="file-drop-zone">
+                <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <p class="drop-prompt">Drag & drop your PDF, Markdown, or Code file here or <span class="browse-link">browse</span></p>
+                <input type="file" id="file-input" style="display: none;" accept=".pdf,.md,.txt,.py,.json">
+              </div>
+
+              <div class="upload-options-row">
+                <div class="filter-group">
+                  <label>Chunking Strategy:</label>
+                  <select id="upload-strategy" class="custom-select-sm">
+                    <option value="semantic" selected>Semantic Distance Gradient</option>
+                    <option value="sentence">Sentence Boundary Preservation</option>
+                    <option value="fixed">Fixed Character Window</option>
+                  </select>
+                </div>
+                <button type="submit" class="btn btn-primary" id="btn-submit-upload">Ingest into Vector DB</button>
+              </div>
+            </form>
+            <div id="upload-status-box" style="margin-top: 15px;"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
