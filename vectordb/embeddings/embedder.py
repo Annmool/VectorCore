@@ -28,8 +28,10 @@ class Embedder:
         if device is None:
             try:
                 import torch
-                torch.set_num_threads(1)
-                torch.set_num_interop_threads(1)
+                try:
+                    torch.set_num_threads(1)
+                except Exception:
+                    pass
                 self.device = "cuda" if torch.cuda.is_available() else "cpu"
             except ImportError:
                 self.device = "cpu"
@@ -40,9 +42,11 @@ class Embedder:
         """Lazy load model on first use."""
         if self._model is None:
             try:
-                import torch
-                torch.set_num_threads(1)
-                torch.set_num_interop_threads(1)
+                try:
+                    import torch
+                    torch.set_num_threads(1)
+                except Exception:
+                    pass
                 from sentence_transformers import SentenceTransformer
 
                 self._model = SentenceTransformer(self.model_name, device=self.device)
