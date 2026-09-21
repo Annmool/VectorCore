@@ -91,6 +91,7 @@ class Collection:
         hnsw_m0: Optional[int] = None,
         hnsw_ef_construction: int = 64,
         hnsw_ef_search: int = 32,
+        hnsw_extend_candidates: bool = False,
         ivf_nlist: int = 16,
         ivf_nprobe: int = 4,
     ):
@@ -104,6 +105,7 @@ class Collection:
         self.hnsw_m0 = hnsw_m0
         self.hnsw_ef_construction = hnsw_ef_construction
         self.hnsw_ef_search = hnsw_ef_search
+        self.hnsw_extend_candidates = hnsw_extend_candidates
         self.ivf_nlist = ivf_nlist
         self.ivf_nprobe = ivf_nprobe
 
@@ -124,6 +126,7 @@ class Collection:
                 ef_construction=self.hnsw_ef_construction,
                 ef_search=self.hnsw_ef_search,
                 metric=self.metric,
+                extend_candidates=self.hnsw_extend_candidates,
             )
         else:
             raise ValueError(f"Unknown index type: {itype}")
@@ -226,6 +229,7 @@ class Collection:
             "hnsw_m0": self.hnsw_m0,
             "hnsw_ef_construction": self.hnsw_ef_construction,
             "hnsw_ef_search": self.hnsw_ef_search,
+            "hnsw_extend_candidates": self.hnsw_extend_candidates,
             "ivf_nlist": self.ivf_nlist,
             "ivf_nprobe": self.ivf_nprobe,
         }
@@ -257,6 +261,7 @@ class Collection:
             hnsw_m0=config.get("hnsw_m0", None),
             hnsw_ef_construction=config.get("hnsw_ef_construction", 64),
             hnsw_ef_search=config.get("hnsw_ef_search", 32),
+            hnsw_extend_candidates=config.get("hnsw_extend_candidates", False),
             ivf_nlist=config.get("ivf_nlist", 16),
             ivf_nprobe=config.get("ivf_nprobe", 4),
         )

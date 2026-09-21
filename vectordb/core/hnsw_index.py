@@ -30,6 +30,7 @@ class HNSWIndex:
         ef_search: int = 32,
         metric: MetricType = "cosine",
         heuristic_neighbors: bool = True,
+        extend_candidates: bool = False,
     ):
         self.dim = dim
         self.M = M
@@ -38,6 +39,7 @@ class HNSWIndex:
         self.ef_search = ef_search
         self.metric: MetricType = metric
         self.heuristic_neighbors = heuristic_neighbors
+        self.extend_candidates = extend_candidates
         self.mL = 1.0 / math.log(M) if M > 1 else 1.0
 
         # Graph storage: layer -> node_idx -> list of neighbor node_idx
@@ -133,14 +135,25 @@ class HNSWIndex:
         query: np.ndarray,
         candidates: List[Tuple[float, int]],
         max_m: int,
-        extend_candidates: bool = True,
+        level: Optional[int] = None,
+        extend_candidates: bool = False,
         keep_pruned_connections: bool = True,
     ) -> List[int]:
         """
         Heuristic neighbor selection (SELECT-NEIGHBORS-HEURISTIC):
         Selects neighbors that are not only close to query, but also diverse (forming small-world edges).
         """
+        # Extend candidates with neighbors of candidates at `level` if requested (Algorithm 4)
+        cands_dict = {node: d for d, node in candidates}
+        if extend_candidates and level is not None and level < len(self.layers):
+            for _, c_node in list(candidates):
+                for adj in self.layers[level].get(c_node, set()):
+                    if adj not in cands_dict and not self.is_deleted[adj]:
+                        cands_dict[adj] = self._dist(query, self.vectors[adj])
+            candidates = [(d, node) for node, d in cands_dict.items()]
+
         if len(candidates) <= max_m:
+            candidates.sort(key=lambda x: x[0])
             return [node for _, node in candidates]
 
         # Candidates sorted by distance to query
@@ -244,9 +257,11 @@ class HNSWIndex:
 
             # Select M neighbors for new node at all levels (including level 0)
             if self.heuristic_neighbors:
-                neighbors_to_add = self._select_neighbors_heuristic(vector, candidates, self.M)
+                neighbors_to_add = self._select_neighbors_heuristic(
+                    vector, candidates, max_m=self.M, level=lev, extend_candidates=self.extend_candidates
+                )
             else:
-                neighbors_to_add = self._select_neighbors_simple(candidates, self.M)
+                neighbors_to_add = self._select_neighbors_simple(candidates, max_m=self.M)
 
             # Shrink cap for neighbor connections: M0 for level 0, M for higher levels
             shrink_cap = self.M0 if lev == 0 else self.M
@@ -265,9 +280,11 @@ class HNSWIndex:
                     neigh_vec = self.vectors[neighbor]
                     neigh_cands = [(self._dist(neigh_vec, self.vectors[n]), n) for n in self.layers[lev][neighbor] if n != neighbor]
                     if self.heuristic_neighbors:
-                        shrunk = self._select_neighbors_heuristic(neigh_vec, neigh_cands, shrink_cap)
+                        shrunk = self._select_neighbors_heuristic(
+                            neigh_vec, neigh_cands, max_m=shrink_cap, level=lev, extend_candidates=self.extend_candidates
+                        )
                     else:
-                        shrunk = self._select_neighbors_simple(neigh_cands, shrink_cap)
+                        shrunk = self._select_neighbors_simple(neigh_cands, max_m=shrink_cap)
                     self.layers[lev][neighbor] = set(shrunk)
 
         if node_level > self.max_level:
