@@ -152,6 +152,11 @@ class Collection:
             self.storage_engine.append_wal(self.name, "delete", {"id": id})
         return success
 
+    def compact(self) -> None:
+        """Purge tombstones and rebuild active index."""
+        if hasattr(self.index, "compact"):
+            self.index.compact()
+
     def query(
         self,
         vector: np.ndarray,

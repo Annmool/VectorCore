@@ -180,12 +180,10 @@ class HNSWIndex:
         vector = np.asarray(vector, dtype=np.float32).flatten()
 
         if id in self.id_to_idx:
-            # Re-insertion: update vector in place
-            idx = self.id_to_idx[id]
-            self.vectors[idx] = vector
-            self.metadata[idx] = meta or {}
-            self.is_deleted[idx] = False
-            return idx
+            # Re-insertion: soft-tombstone the old node so its edges stay intact for routing,
+            # and insert the new node fresh with new edges matching the new vector.
+            old_idx = self.id_to_idx[id]
+            self.is_deleted[old_idx] = True
 
         idx = len(self.ids)
         vec_2d = vector.reshape(1, self.dim)
@@ -302,6 +300,33 @@ class HNSWIndex:
                 self.is_deleted[idx] = True
                 return True
         return False
+
+    def compact(self) -> None:
+        """
+        Rebuild the HNSW index from scratch using only active (non-deleted) nodes.
+        Cleans up accumulated tombstones from re-additions or deletions.
+        """
+        active_mask = [not d for d in self.is_deleted]
+        if all(active_mask):
+            return
+
+        active_ids = [self.ids[i] for i, act in enumerate(active_mask) if act]
+        active_vecs = self.vectors[active_mask] if len(self.vectors) > 0 else np.empty((0, self.dim), dtype=np.float32)
+        active_metas = [self.metadata[i] for i, act in enumerate(active_mask) if act]
+
+        # Reset internal storage
+        self.layers = []
+        self.enter_node = None
+        self.max_level = -1
+        self.node_levels = {}
+        self.vectors = np.empty((0, self.dim), dtype=np.float32)
+        self.ids = []
+        self.id_to_idx = {}
+        self.metadata = []
+        self.is_deleted = []
+
+        for doc_id, vec, meta in zip(active_ids, active_vecs, active_metas):
+            self.add(doc_id, vec, meta)
 
     def search(
         self,
