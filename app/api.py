@@ -194,8 +194,8 @@ def get_system_status():
 
 @app.post("/api/collection/seed")
 def seed_corpus_endpoint():
-    """Seed or re-seed the built-in AI research knowledge base."""
-    return seed_knowledge_base()
+    """Seed or re-seed the built-in AI research knowledge base with a fresh graph."""
+    return seed_knowledge_base(force=True)
 
 
 @app.post("/api/collection/switch-index")

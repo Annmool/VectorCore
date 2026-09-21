@@ -448,7 +448,10 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillStyle = l > 0 ? "#fbbf24" : "#00f59b";
       ctx.font = "bold 10px 'JetBrains Mono'";
       ctx.textAlign = "left";
-      ctx.fillText(l === data.max_level && data.max_level > 0 ? `Layer ${l} (Express Skip)` : `Layer ${l} (Base Graph)`, 44, y - 8);
+      const layerLabel = l === 0
+        ? "Layer 0 (Base Graph)"
+        : (l === data.max_level ? `Layer ${l} (Top Express Skip)` : `Layer ${l} (Express Skip)`);
+      ctx.fillText(layerLabel, 44, y - 8);
     }
 
     // Draw Edges
