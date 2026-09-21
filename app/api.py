@@ -144,7 +144,7 @@ def seed_knowledge_base(force: bool = False):
             index_type="hnsw",
             metric="cosine",
             storage_engine=state.storage,
-            hnsw_m=8,
+            hnsw_m=16,
             hnsw_ef_construction=64,
             hnsw_ef_search=32,
         )

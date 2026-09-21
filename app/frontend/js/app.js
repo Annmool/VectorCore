@@ -336,7 +336,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // =========================================================================
   async function fetchAndRenderHNSWGraph() {
     try {
-      const res = await fetch("/api/hnsw/graph");
+      const res = await fetch(`/api/hnsw/graph?t=${Date.now()}`);
       const data = await res.json();
       renderHNSWCanvas(data);
     } catch (e) {
