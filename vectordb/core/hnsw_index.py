@@ -25,6 +25,7 @@ class HNSWIndex:
         self,
         dim: int,
         M: int = 16,
+        M0: Optional[int] = None,
         ef_construction: int = 64,
         ef_search: int = 32,
         metric: MetricType = "cosine",
@@ -32,7 +33,7 @@ class HNSWIndex:
     ):
         self.dim = dim
         self.M = M
-        self.M0 = 2 * M  # Maximum edges for level 0
+        self.M0 = M0 if M0 is not None else 2 * M  # Maximum edges for level 0
         self.ef_construction = ef_construction
         self.ef_search = ef_search
         self.metric: MetricType = metric
@@ -241,28 +242,32 @@ class HNSWIndex:
             candidates = self._search_layer(vector, enter_points, ef=self.ef_construction, level=lev)
             enter_points = [node for _, node in candidates]
 
-            # Select neighbors
-            max_edges = self.M0 if lev == 0 else self.M
+            # Select M neighbors for new node at all levels (including level 0)
             if self.heuristic_neighbors:
-                neighbors_to_add = self._select_neighbors_heuristic(vector, candidates, max_edges)
+                neighbors_to_add = self._select_neighbors_heuristic(vector, candidates, self.M)
             else:
-                neighbors_to_add = self._select_neighbors_simple(candidates, max_edges)
+                neighbors_to_add = self._select_neighbors_simple(candidates, self.M)
+
+            # Shrink cap for neighbor connections: M0 for level 0, M for higher levels
+            shrink_cap = self.M0 if lev == 0 else self.M
 
             # Establish bi-directional edges
             for neighbor in neighbors_to_add:
+                if neighbor == idx:
+                    continue
                 self.layers[lev][idx].add(neighbor)
                 if neighbor not in self.layers[lev]:
                     self.layers[lev][neighbor] = set()
                 self.layers[lev][neighbor].add(idx)
 
-                # Shrink neighbor's connections if exceeding max_edges
-                if len(self.layers[lev][neighbor]) > max_edges:
+                # Shrink neighbor's connections if exceeding shrink_cap
+                if len(self.layers[lev][neighbor]) > shrink_cap:
                     neigh_vec = self.vectors[neighbor]
-                    neigh_cands = [(self._dist(neigh_vec, self.vectors[n]), n) for n in self.layers[lev][neighbor]]
+                    neigh_cands = [(self._dist(neigh_vec, self.vectors[n]), n) for n in self.layers[lev][neighbor] if n != neighbor]
                     if self.heuristic_neighbors:
-                        shrunk = self._select_neighbors_heuristic(neigh_vec, neigh_cands, max_edges)
+                        shrunk = self._select_neighbors_heuristic(neigh_vec, neigh_cands, shrink_cap)
                     else:
-                        shrunk = self._select_neighbors_simple(neigh_cands, max_edges)
+                        shrunk = self._select_neighbors_simple(neigh_cands, shrink_cap)
                     self.layers[lev][neighbor] = set(shrunk)
 
         if node_level > self.max_level:

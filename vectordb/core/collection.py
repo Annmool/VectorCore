@@ -88,6 +88,7 @@ class Collection:
         storage_engine: Optional[StorageEngine] = None,
         # Index-specific kwargs
         hnsw_m: int = 16,
+        hnsw_m0: Optional[int] = None,
         hnsw_ef_construction: int = 64,
         hnsw_ef_search: int = 32,
         ivf_nlist: int = 16,
@@ -100,6 +101,7 @@ class Collection:
         self.storage_engine = storage_engine or StorageEngine()
 
         self.hnsw_m = hnsw_m
+        self.hnsw_m0 = hnsw_m0
         self.hnsw_ef_construction = hnsw_ef_construction
         self.hnsw_ef_search = hnsw_ef_search
         self.ivf_nlist = ivf_nlist
@@ -118,6 +120,7 @@ class Collection:
             return HNSWIndex(
                 dim=self.dim,
                 M=self.hnsw_m,
+                M0=self.hnsw_m0,
                 ef_construction=self.hnsw_ef_construction,
                 ef_search=self.hnsw_ef_search,
                 metric=self.metric,
@@ -215,6 +218,7 @@ class Collection:
             "index_type": self.index_type,
             "metric": self.metric,
             "hnsw_m": self.hnsw_m,
+            "hnsw_m0": self.hnsw_m0,
             "hnsw_ef_construction": self.hnsw_ef_construction,
             "hnsw_ef_search": self.hnsw_ef_search,
             "ivf_nlist": self.ivf_nlist,
@@ -245,6 +249,7 @@ class Collection:
             metric=config.get("metric", "cosine"),
             storage_engine=engine,
             hnsw_m=config.get("hnsw_m", 16),
+            hnsw_m0=config.get("hnsw_m0", None),
             hnsw_ef_construction=config.get("hnsw_ef_construction", 64),
             hnsw_ef_search=config.get("hnsw_ef_search", 32),
             ivf_nlist=config.get("ivf_nlist", 16),
