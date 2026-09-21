@@ -72,9 +72,12 @@ class HNSWIndex:
         enter_points: List[int],
         ef: int,
         level: int,
+        accept: Optional[Callable[[int], bool]] = None,
     ) -> List[Tuple[float, int]]:
         """
         Search for ef nearest neighbors at a specific graph level.
+        If accept is provided, only nodes satisfying accept(node) are counted in the ef result set,
+        while all reachable nodes can be used as traversal stepping stones in candidates.
         Returns list of (distance, node_idx) sorted ascending by distance.
         """
         visited: Set[int] = set(enter_points)
@@ -82,19 +85,18 @@ class HNSWIndex:
         # Candidates min-heap: (dist, node_idx)
         candidates: List[Tuple[float, int]] = []
         
-        # Best elements max-heap (to easily pop furthest): (-dist, node_idx)
+        # Best elements max-heap: (-dist, node_idx)
         w_best: List[Tuple[float, int]] = []
 
         for ep in enter_points:
             d = self._dist(query, self.vectors[ep])
             heapq.heappush(candidates, (d, ep))
-            heapq.heappush(w_best, (-d, ep))
+            if accept is None or accept(ep):
+                heapq.heappush(w_best, (-d, ep))
 
         while candidates:
             c_dist, c_node = heapq.heappop(candidates)
-            furthest_w_dist = -w_best[0][0]
-
-            if c_dist > furthest_w_dist:
+            if len(w_best) >= ef and c_dist > -w_best[0][0]:
                 break
 
             # Explore neighbors at this level
@@ -102,15 +104,15 @@ class HNSWIndex:
             for neighbor in neighbors:
                 if neighbor not in visited:
                     visited.add(neighbor)
-                    furthest_w_dist = -w_best[0][0]
                     d_neighbor = self._dist(query, self.vectors[neighbor])
+                    worst = -w_best[0][0] if len(w_best) >= ef else float("inf")
 
-                    if d_neighbor < furthest_w_dist or len(w_best) < ef:
+                    if d_neighbor < worst or len(w_best) < ef:
                         heapq.heappush(candidates, (d_neighbor, neighbor))
-                        heapq.heappush(w_best, (-d_neighbor, neighbor))
-
-                        if len(w_best) > ef:
-                            heapq.heappop(w_best)
+                        if accept is None or accept(neighbor):
+                            heapq.heappush(w_best, (-d_neighbor, neighbor))
+                            if len(w_best) > ef:
+                                heapq.heappop(w_best)
 
         # Return sorted ascending by distance
         results = [(-neg_d, node) for neg_d, node in w_best]
@@ -341,9 +343,38 @@ class HNSWIndex:
         if self.enter_node is None or len(self.ids) == 0:
             return []
 
-        query = np.asarray(query, dtype=np.float32).flatten()
-        ef = max(ef_search or self.ef_search, k)
+        active_indices = [i for i, deleted in enumerate(self.is_deleted) if not deleted]
+        active_count = len(active_indices)
+        if active_count == 0:
+            return []
 
+        query = np.asarray(query, dtype=np.float32).flatten()
+
+        # If filter is provided, check selectivity
+        if filter_fn is not None:
+            matching_indices = [i for i in active_indices if filter_fn(self.metadata[i])]
+            if len(matching_indices) == 0:
+                return []
+            # If filter is very selective (< 1% match or <= 50 matching nodes), fall back to exact scan
+            if len(matching_indices) <= 50 or (len(matching_indices) / max(active_count, 1)) < 0.01:
+                results = []
+                for node_idx in matching_indices:
+                    d = self._dist(query, self.vectors[node_idx])
+                    results.append((d, node_idx))
+                results.sort(key=lambda x: x[0])
+                return [
+                    {
+                        "id": self.ids[node_idx],
+                        "score": float(distance_to_score(dist, metric=self.metric)),
+                        "distance": dist,
+                        "metadata": self.metadata[node_idx],
+                        "layer_level": self.node_levels.get(node_idx, 0),
+                        "index_type": "hnsw",
+                    }
+                    for dist, node_idx in results[:k]
+                ]
+
+        # Standard HNSW traversal
         curr_obj = self.enter_node
         curr_dist = self._dist(query, self.vectors[curr_obj])
 
@@ -360,29 +391,33 @@ class HNSWIndex:
                         curr_obj = neighbor
                         changed = True
 
-        # 2. Bottom layer 0: beam search with ef
-        candidates = self._search_layer(query, [curr_obj], ef=ef, level=0)
+        # 2. Bottom layer 0: beam search with iterative ef expansion
+        accept_pred = (
+            lambda idx: (not self.is_deleted[idx]) and (filter_fn is None or filter_fn(self.metadata[idx]))
+        )
 
-        # 3. Filter deleted or non-matching metadata
+        curr_ef = max(ef_search or self.ef_search, k)
+        while True:
+            candidates = self._search_layer(query, [curr_obj], ef=curr_ef, level=0, accept=accept_pred)
+            if len(candidates) >= k or curr_ef >= active_count:
+                break
+            next_ef = min(curr_ef * 2, active_count)
+            if next_ef == curr_ef:
+                break
+            curr_ef = next_ef
+
+        # Format top-k results
         results = []
-        for dist, node_idx in candidates:
-            if self.is_deleted[node_idx]:
-                continue
-            meta = self.metadata[node_idx]
-            if filter_fn is not None and not filter_fn(meta):
-                continue
-
+        for dist, node_idx in candidates[:k]:
             score = float(distance_to_score(dist, metric=self.metric))
             results.append({
                 "id": self.ids[node_idx],
                 "score": score,
                 "distance": dist,
-                "metadata": meta,
+                "metadata": self.metadata[node_idx],
                 "layer_level": self.node_levels.get(node_idx, 0),
                 "index_type": "hnsw",
             })
-            if len(results) == k:
-                break
 
         return results
 
