@@ -16,7 +16,8 @@ if __name__ == "__main__":
     print("=" * 60)
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", 8000))
-    print(f" Server running at: http://{host}:{port}")
-    print(f" API Documentation: http://{host}:{port}/docs")
+    display_host = "localhost" if host == "0.0.0.0" else host
+    print(f" Server running at: http://{display_host}:{port}")
+    print(f" API Documentation: http://{display_host}:{port}/docs")
     print("=" * 60)
     uvicorn.run("app.api:app", host=host, port=port, reload=False)
