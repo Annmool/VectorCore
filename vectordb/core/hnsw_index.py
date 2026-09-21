@@ -6,6 +6,8 @@ Based on the seminal paper by Yu. A. Malkov and D. A. Yashunin (2018):
 
 import math
 import heapq
+import threading
+from collections import deque
 from typing import List, Dict, Any, Tuple, Set, Optional, Callable
 import numpy as np
 from vectordb.core.distance import compute_distance, MetricType, distance_to_score
@@ -19,6 +21,7 @@ class HNSWIndex:
     - Heuristic neighbor selection for graph connectivity & diversity
     - Configurable M, M0, efConstruction, efSearch
     - Dynamic vector insertion & metadata filtering
+    - Thread-safe operations via RLock
     """
 
     def __init__(
@@ -31,6 +34,7 @@ class HNSWIndex:
         metric: MetricType = "cosine",
         heuristic_neighbors: bool = True,
         extend_candidates: bool = False,
+        seed: Optional[int] = None,
     ):
         self.dim = dim
         self.M = M
@@ -40,10 +44,13 @@ class HNSWIndex:
         self.metric: MetricType = metric
         self.heuristic_neighbors = heuristic_neighbors
         self.extend_candidates = extend_candidates
+        self.seed = seed
+        self.rng = np.random.default_rng(seed)
         self.mL = 1.0 / math.log(M) if M > 1 else 1.0
 
-        # Graph storage: layer -> node_idx -> list of neighbor node_idx
-        # layers[level][node_idx] = set of neighbor node_idx
+        self._lock = threading.RLock()
+
+        # Graph storage: layer -> node_idx -> set of neighbor node_idx
         self.layers: List[Dict[int, Set[int]]] = []
         self.enter_node: Optional[int] = None
         self.max_level: int = -1
@@ -57,11 +64,12 @@ class HNSWIndex:
         self.is_deleted: List[bool] = []
 
     def __len__(self) -> int:
-        return len(self.ids) - sum(self.is_deleted)
+        with self._lock:
+            return len(self.ids) - sum(self.is_deleted)
 
     def _random_level(self) -> int:
         """Sample a level for a new node from exponential decay distribution."""
-        unif = np.random.uniform(1e-9, 1.0)
+        unif = self.rng.uniform(1e-9, 1.0)
         return int(-math.log(unif) * self.mL)
 
     def _dist(self, vec_a: np.ndarray, vec_b: np.ndarray) -> float:
@@ -192,109 +200,114 @@ class HNSWIndex:
 
     def add(self, id: str, vector: np.ndarray, meta: Optional[Dict[str, Any]] = None) -> int:
         """Insert a vector into the HNSW graph."""
-        vector = np.asarray(vector, dtype=np.float32).flatten()
+        with self._lock:
+            vector = np.asarray(vector, dtype=np.float32).flatten()
 
-        if id in self.id_to_idx:
-            # Re-insertion: soft-tombstone the old node so its edges stay intact for routing,
-            # and insert the new node fresh with new edges matching the new vector.
-            old_idx = self.id_to_idx[id]
-            self.is_deleted[old_idx] = True
+            if id in self.id_to_idx:
+                # Re-insertion: soft-tombstone the old node so its edges stay intact for routing,
+                # and insert the new node fresh with new edges matching the new vector.
+                old_idx = self.id_to_idx[id]
+                self.is_deleted[old_idx] = True
 
-        idx = len(self.ids)
-        vec_2d = vector.reshape(1, self.dim)
-        if len(self.vectors) == 0:
-            self.vectors = vec_2d
-        else:
-            self.vectors = np.vstack([self.vectors, vec_2d])
-
-        self.ids.append(id)
-        self.id_to_idx[id] = idx
-        self.metadata.append(meta or {})
-        self.is_deleted.append(False)
-
-        node_level = self._random_level()
-        self.node_levels[idx] = node_level
-
-        # Expand layer graphs if needed
-        while len(self.layers) <= max(node_level, self.max_level, 0):
-            self.layers.append({})
-
-        if self.enter_node is None:
-            # First element in graph
-            for lev in range(node_level + 1):
-                self.layers[lev][idx] = set()
-            self.enter_node = idx
-            self.max_level = node_level
-            return idx
-
-        # Multi-layer insertion
-        curr_obj = self.enter_node
-        curr_dist = self._dist(vector, self.vectors[curr_obj])
-
-        # 1. Top-down greedy routing to find closest entry point down to node_level + 1
-        for lev in range(self.max_level, node_level, -1):
-            changed = True
-            while changed:
-                changed = False
-                neighbors = self.layers[lev].get(curr_obj, set())
-                for neighbor in neighbors:
-                    d = self._dist(vector, self.vectors[neighbor])
-                    if d < curr_dist:
-                        curr_dist = d
-                        curr_obj = neighbor
-                        changed = True
-
-        # 2. From min(max_level, node_level) down to 0: search layer and connect neighbors
-        enter_points = [curr_obj]
-        for lev in range(min(self.max_level, node_level), -1, -1):
-            # Ensure dictionary exists for this level
-            if idx not in self.layers[lev]:
-                self.layers[lev][idx] = set()
-
-            # Search layer with ef_construction
-            candidates = self._search_layer(vector, enter_points, ef=self.ef_construction, level=lev)
-            enter_points = [node for _, node in candidates]
-
-            # Select M neighbors for new node at all levels (including level 0)
-            if self.heuristic_neighbors:
-                neighbors_to_add = self._select_neighbors_heuristic(
-                    vector, candidates, max_m=self.M, level=lev, extend_candidates=self.extend_candidates
-                )
+            idx = len(self.ids)
+            vec_2d = vector.reshape(1, self.dim)
+            if len(self.vectors) == 0:
+                self.vectors = vec_2d
             else:
-                neighbors_to_add = self._select_neighbors_simple(candidates, max_m=self.M)
+                self.vectors = np.vstack([self.vectors, vec_2d])
 
-            # Shrink cap for neighbor connections: M0 for level 0, M for higher levels
-            shrink_cap = self.M0 if lev == 0 else self.M
+            self.ids.append(id)
+            self.id_to_idx[id] = idx
+            self.metadata.append(meta or {})
+            self.is_deleted.append(False)
 
-            # Establish bi-directional edges
-            for neighbor in neighbors_to_add:
-                if neighbor == idx:
-                    continue
-                self.layers[lev][idx].add(neighbor)
-                if neighbor not in self.layers[lev]:
-                    self.layers[lev][neighbor] = set()
-                self.layers[lev][neighbor].add(idx)
+            node_level = self._random_level()
+            self.node_levels[idx] = node_level
 
-                # Shrink neighbor's connections if exceeding shrink_cap
-                if len(self.layers[lev][neighbor]) > shrink_cap:
-                    neigh_vec = self.vectors[neighbor]
-                    neigh_cands = [(self._dist(neigh_vec, self.vectors[n]), n) for n in self.layers[lev][neighbor] if n != neighbor]
-                    if self.heuristic_neighbors:
-                        shrunk = self._select_neighbors_heuristic(
-                            neigh_vec, neigh_cands, max_m=shrink_cap, level=lev, extend_candidates=self.extend_candidates
-                        )
-                    else:
-                        shrunk = self._select_neighbors_simple(neigh_cands, max_m=shrink_cap)
-                    self.layers[lev][neighbor] = set(shrunk)
+            # Expand layer graphs if needed
+            while len(self.layers) <= max(node_level, self.max_level, 0):
+                self.layers.append({})
 
-        if node_level > self.max_level:
-            # Update global enter node
-            for lev in range(self.max_level + 1, node_level + 1):
-                self.layers[lev][idx] = set()
-            self.max_level = node_level
-            self.enter_node = idx
+            if self.enter_node is None:
+                # First element in graph
+                for lev in range(node_level + 1):
+                    self.layers[lev][idx] = set()
+                self.enter_node = idx
+                self.max_level = node_level
+                return idx
 
-        return idx
+            # Multi-layer insertion
+            curr_obj = self.enter_node
+            curr_dist = self._dist(vector, self.vectors[curr_obj])
+
+            # 1. Top-down greedy routing to find closest entry point down to node_level + 1
+            for lev in range(self.max_level, node_level, -1):
+                changed = True
+                while changed:
+                    changed = False
+                    neighbors = self.layers[lev].get(curr_obj, set())
+                    for neighbor in neighbors:
+                        d = self._dist(vector, self.vectors[neighbor])
+                        if d < curr_dist:
+                            curr_dist = d
+                            curr_obj = neighbor
+                            changed = True
+
+            # 2. From min(max_level, node_level) down to 0: search layer and connect neighbors
+            enter_points = [curr_obj]
+            for lev in range(min(self.max_level, node_level), -1, -1):
+                # Ensure dictionary exists for this level
+                if idx not in self.layers[lev]:
+                    self.layers[lev][idx] = set()
+
+                # Search layer with ef_construction (accept=None allows routing via tombstones)
+                candidates = self._search_layer(vector, enter_points, ef=self.ef_construction, level=lev, accept=None)
+                enter_points = [node for _, node in candidates]
+
+                # Select M neighbors for new node at all levels (including level 0)
+                if self.heuristic_neighbors:
+                    neighbors_to_add = self._select_neighbors_heuristic(
+                        vector, candidates, max_m=self.M, level=lev, extend_candidates=self.extend_candidates
+                    )
+                else:
+                    neighbors_to_add = self._select_neighbors_simple(candidates, max_m=self.M)
+
+                # Shrink cap for neighbor connections: M0 for level 0, M for higher levels
+                shrink_cap = self.M0 if lev == 0 else self.M
+
+                # Establish bi-directional edges (excluding self-loops)
+                for neighbor in neighbors_to_add:
+                    if neighbor == idx:
+                        continue
+                    self.layers[lev][idx].add(neighbor)
+                    if neighbor not in self.layers[lev]:
+                        self.layers[lev][neighbor] = set()
+                    self.layers[lev][neighbor].add(idx)
+
+                    # Shrink neighbor's connections if exceeding shrink_cap
+                    if len(self.layers[lev][neighbor]) > shrink_cap:
+                        neigh_vec = self.vectors[neighbor]
+                        neigh_cands = [
+                            (self._dist(neigh_vec, self.vectors[n]), n)
+                            for n in self.layers[lev][neighbor]
+                            if n != neighbor
+                        ]
+                        if self.heuristic_neighbors:
+                            shrunk = self._select_neighbors_heuristic(
+                                neigh_vec, neigh_cands, max_m=shrink_cap, level=lev, extend_candidates=self.extend_candidates
+                            )
+                        else:
+                            shrunk = self._select_neighbors_simple(neigh_cands, max_m=shrink_cap)
+                        self.layers[lev][neighbor] = set(shrunk)
+
+            if node_level > self.max_level:
+                # Update global enter node
+                for lev in range(self.max_level + 1, node_level + 1):
+                    self.layers[lev][idx] = set()
+                self.max_level = node_level
+                self.enter_node = idx
+
+            return idx
 
     def add_batch(
         self,
@@ -303,49 +316,52 @@ class HNSWIndex:
         metadatas: Optional[List[Dict[str, Any]]] = None,
     ) -> List[int]:
         """Add a batch of vectors to HNSW graph."""
-        vectors = np.asarray(vectors, dtype=np.float32)
-        if metadatas is None:
-            metadatas = [{} for _ in range(len(ids))]
-        indices = []
-        for doc_id, vec, meta in zip(ids, vectors, metadatas):
-            indices.append(self.add(doc_id, vec, meta))
-        return indices
+        with self._lock:
+            vectors = np.asarray(vectors, dtype=np.float32)
+            if metadatas is None:
+                metadatas = [{} for _ in range(len(ids))]
+            indices = []
+            for doc_id, vec, meta in zip(ids, vectors, metadatas):
+                indices.append(self.add(doc_id, vec, meta))
+            return indices
 
     def delete(self, id: str) -> bool:
         """Mark node as deleted (soft tombstone to preserve graph connectivity)."""
-        if id in self.id_to_idx:
-            idx = self.id_to_idx[id]
-            if not self.is_deleted[idx]:
-                self.is_deleted[idx] = True
-                return True
-        return False
+        with self._lock:
+            if id in self.id_to_idx:
+                idx = self.id_to_idx[id]
+                if not self.is_deleted[idx]:
+                    self.is_deleted[idx] = True
+                    return True
+            return False
 
     def compact(self) -> None:
         """
         Rebuild the HNSW index from scratch using only active (non-deleted) nodes.
         Cleans up accumulated tombstones from re-additions or deletions.
         """
-        active_mask = [not d for d in self.is_deleted]
-        if all(active_mask):
-            return
+        with self._lock:
+            active_mask = [not d for d in self.is_deleted]
+            if all(active_mask):
+                return
 
-        active_ids = [self.ids[i] for i, act in enumerate(active_mask) if act]
-        active_vecs = self.vectors[active_mask] if len(self.vectors) > 0 else np.empty((0, self.dim), dtype=np.float32)
-        active_metas = [self.metadata[i] for i, act in enumerate(active_mask) if act]
+            active_ids = [self.ids[i] for i, act in enumerate(active_mask) if act]
+            active_vecs = self.vectors[active_mask] if len(self.vectors) > 0 else np.empty((0, self.dim), dtype=np.float32)
+            active_metas = [self.metadata[i] for i, act in enumerate(active_mask) if act]
 
-        # Reset internal storage
-        self.layers = []
-        self.enter_node = None
-        self.max_level = -1
-        self.node_levels = {}
-        self.vectors = np.empty((0, self.dim), dtype=np.float32)
-        self.ids = []
-        self.id_to_idx = {}
-        self.metadata = []
-        self.is_deleted = []
+            # Reset internal storage
+            self.layers = []
+            self.enter_node = None
+            self.max_level = -1
+            self.node_levels = {}
+            self.vectors = np.empty((0, self.dim), dtype=np.float32)
+            self.ids = []
+            self.id_to_idx = {}
+            self.metadata = []
+            self.is_deleted = []
 
-        for doc_id, vec, meta in zip(active_ids, active_vecs, active_metas):
-            self.add(doc_id, vec, meta)
+            for doc_id, vec, meta in zip(active_ids, active_vecs, active_metas):
+                self.add(doc_id, vec, meta)
 
     def search(
         self,
@@ -357,122 +373,175 @@ class HNSWIndex:
         """
         Search for top-k approximate nearest neighbors using HNSW graph traversal.
         """
-        if self.enter_node is None or len(self.ids) == 0:
-            return []
-
-        active_indices = [i for i, deleted in enumerate(self.is_deleted) if not deleted]
-        active_count = len(active_indices)
-        if active_count == 0:
-            return []
-
-        query = np.asarray(query, dtype=np.float32).flatten()
-
-        # If filter is provided, check selectivity
-        if filter_fn is not None:
-            matching_indices = [i for i in active_indices if filter_fn(self.metadata[i])]
-            if len(matching_indices) == 0:
+        with self._lock:
+            if self.enter_node is None or len(self.ids) == 0:
                 return []
-            # If filter is very selective (< 1% match or <= 50 matching nodes), fall back to exact scan
-            if len(matching_indices) <= 50 or (len(matching_indices) / max(active_count, 1)) < 0.01:
-                results = []
-                for node_idx in matching_indices:
-                    d = self._dist(query, self.vectors[node_idx])
-                    results.append((d, node_idx))
-                results.sort(key=lambda x: x[0])
-                return [
-                    {
-                        "id": self.ids[node_idx],
-                        "score": float(distance_to_score(dist, metric=self.metric)),
-                        "distance": dist,
-                        "metadata": self.metadata[node_idx],
-                        "layer_level": self.node_levels.get(node_idx, 0),
-                        "index_type": "hnsw",
-                    }
-                    for dist, node_idx in results[:k]
-                ]
 
-        # Standard HNSW traversal
-        curr_obj = self.enter_node
-        curr_dist = self._dist(query, self.vectors[curr_obj])
+            active_indices = [i for i, deleted in enumerate(self.is_deleted) if not deleted]
+            active_count = len(active_indices)
+            if active_count == 0:
+                return []
 
-        # 1. Greedy top-down traversal from max_level down to 1
-        for lev in range(self.max_level, 0, -1):
-            changed = True
-            while changed:
-                changed = False
-                neighbors = self.layers[lev].get(curr_obj, set())
-                for neighbor in neighbors:
-                    d = self._dist(query, self.vectors[neighbor])
-                    if d < curr_dist:
-                        curr_dist = d
-                        curr_obj = neighbor
-                        changed = True
+            query = np.asarray(query, dtype=np.float32).flatten()
 
-        # 2. Bottom layer 0: beam search with iterative ef expansion
-        accept_pred = (
-            lambda idx: (not self.is_deleted[idx]) and (filter_fn is None or filter_fn(self.metadata[idx]))
-        )
+            # If filter is provided, check selectivity
+            if filter_fn is not None:
+                matching_indices = [i for i in active_indices if filter_fn(self.metadata[i])]
+                if len(matching_indices) == 0:
+                    return []
+                # If filter is very selective (< 1% match or <= 50 matching nodes), fall back to exact scan
+                if len(matching_indices) <= 50 or (len(matching_indices) / max(active_count, 1)) < 0.01:
+                    results = []
+                    for node_idx in matching_indices:
+                        d = self._dist(query, self.vectors[node_idx])
+                        results.append((d, node_idx))
+                    results.sort(key=lambda x: x[0])
+                    return [
+                        {
+                            "id": self.ids[node_idx],
+                            "score": float(distance_to_score(dist, metric=self.metric)),
+                            "distance": dist,
+                            "metadata": self.metadata[node_idx],
+                            "layer_level": self.node_levels.get(node_idx, 0),
+                            "index_type": "hnsw",
+                        }
+                        for dist, node_idx in results[:k]
+                    ]
 
-        curr_ef = max(ef_search or self.ef_search, k)
-        while True:
-            candidates = self._search_layer(query, [curr_obj], ef=curr_ef, level=0, accept=accept_pred)
-            if len(candidates) >= k or curr_ef >= active_count:
-                break
-            next_ef = min(curr_ef * 2, active_count)
-            if next_ef == curr_ef:
-                break
-            curr_ef = next_ef
+            # Standard HNSW traversal
+            curr_obj = self.enter_node
+            curr_dist = self._dist(query, self.vectors[curr_obj])
 
-        # Format top-k results
-        results = []
-        for dist, node_idx in candidates[:k]:
-            score = float(distance_to_score(dist, metric=self.metric))
-            results.append({
-                "id": self.ids[node_idx],
-                "score": score,
-                "distance": dist,
-                "metadata": self.metadata[node_idx],
-                "layer_level": self.node_levels.get(node_idx, 0),
-                "index_type": "hnsw",
-            })
+            # 1. Greedy top-down traversal from max_level down to 1
+            for lev in range(self.max_level, 0, -1):
+                changed = True
+                while changed:
+                    changed = False
+                    neighbors = self.layers[lev].get(curr_obj, set())
+                    for neighbor in neighbors:
+                        d = self._dist(query, self.vectors[neighbor])
+                        if d < curr_dist:
+                            curr_dist = d
+                            curr_obj = neighbor
+                            changed = True
 
-        return results
+            # 2. Bottom layer 0: beam search with iterative ef expansion
+            accept_pred = (
+                lambda idx: (not self.is_deleted[idx]) and (filter_fn is None or filter_fn(self.metadata[idx]))
+            )
+
+            curr_ef = max(ef_search or self.ef_search, k)
+            while True:
+                candidates = self._search_layer(query, [curr_obj], ef=curr_ef, level=0, accept=accept_pred)
+                if len(candidates) >= k or curr_ef >= active_count:
+                    break
+                next_ef = min(curr_ef * 2, active_count)
+                if next_ef == curr_ef:
+                    break
+                curr_ef = next_ef
+
+            # Format top-k results
+            results = []
+            for dist, node_idx in candidates[:k]:
+                score = float(distance_to_score(dist, metric=self.metric))
+                results.append({
+                    "id": self.ids[node_idx],
+                    "score": score,
+                    "distance": dist,
+                    "metadata": self.metadata[node_idx],
+                    "layer_level": self.node_levels.get(node_idx, 0),
+                    "index_type": "hnsw",
+                })
+
+            return results
 
     def get_graph_topology(self, max_nodes: int = 50) -> Dict[str, Any]:
         """
         Export graph topology for 2D/3D visual inspection in the dashboard.
+        Samples a connected subgraph via BFS from enter_node, always preserving higher-level nodes.
         """
-        nodes = []
-        edges = []
-        node_limit = min(len(self.ids), max_nodes)
+        with self._lock:
+            if self.enter_node is None or len(self.ids) == 0:
+                return {
+                    "num_layers": len(self.layers),
+                    "max_level": self.max_level,
+                    "enter_node": None,
+                    "nodes": [],
+                    "edges": [],
+                    "M": self.M,
+                    "ef_construction": self.ef_construction,
+                    "ef_search": self.ef_search,
+                }
 
-        for i in range(node_limit):
-            if not self.is_deleted[i]:
-                nodes.append({
+            # 1. Always include all active nodes with max_level >= 1 so higher layers don't vanish
+            sampled_nodes: Set[int] = set()
+            for idx, lvl in self.node_levels.items():
+                if lvl >= 1 and not self.is_deleted[idx]:
+                    sampled_nodes.add(idx)
+
+            # 2. BFS from enter_node (traversing through tombstones to preserve connectivity,
+            #    but only emitting non-deleted nodes to sampled_nodes)
+            queue: deque = deque([self.enter_node])
+            visited_bfs: Set[int] = {self.enter_node}
+            if not self.is_deleted[self.enter_node]:
+                sampled_nodes.add(self.enter_node)
+
+            while queue and len(sampled_nodes) < max_nodes:
+                curr = queue.popleft()
+                # Traverse neighbors across all layers from high to low
+                for lev in range(len(self.layers) - 1, -1, -1):
+                    for neighbor in self.layers[lev].get(curr, set()):
+                        if neighbor not in visited_bfs:
+                            visited_bfs.add(neighbor)
+                            queue.append(neighbor)
+                            if not self.is_deleted[neighbor]:
+                                sampled_nodes.add(neighbor)
+                                if len(sampled_nodes) >= max_nodes:
+                                    break
+                    if len(sampled_nodes) >= max_nodes:
+                        break
+
+            # 3. Build node representations keyed by integer idx to avoid collisions with re-added duplicate IDs
+            nodes = [
+                {
                     "id": self.ids[i],
                     "idx": i,
                     "max_level": self.node_levels.get(i, 0),
                     "meta": self.metadata[i],
-                })
+                }
+                for i in sampled_nodes
+            ]
 
-        for lev_idx, layer_edges in enumerate(self.layers):
-            for src, tgt_set in layer_edges.items():
-                if src < node_limit and not self.is_deleted[src]:
-                    for tgt in tgt_set:
-                        if tgt < node_limit and not self.is_deleted[tgt] and src < tgt:
-                            edges.append({
-                                "source": self.ids[src],
-                                "target": self.ids[tgt],
-                                "level": lev_idx,
-                            })
+            # 4. Dedupe undirected edges per layer using (min(src, tgt), max(src, tgt), level)
+            edges = []
+            seen_edges: Set[Tuple[int, int, int]] = set()
 
-        return {
-            "num_layers": len(self.layers),
-            "max_level": self.max_level,
-            "enter_node": self.ids[self.enter_node] if self.enter_node is not None else None,
-            "nodes": nodes,
-            "edges": edges,
-            "M": self.M,
-            "ef_construction": self.ef_construction,
-            "ef_search": self.ef_search,
-        }
+            for lev_idx, layer_edges in enumerate(self.layers):
+                for src in sampled_nodes:
+                    for tgt in layer_edges.get(src, set()):
+                        if tgt in sampled_nodes and src != tgt:
+                            edge_key = (min(src, tgt), max(src, tgt), lev_idx)
+                            if edge_key not in seen_edges:
+                                seen_edges.add(edge_key)
+                                edges.append({
+                                    "source": self.ids[src],
+                                    "target": self.ids[tgt],
+                                    "source_idx": src,
+                                    "target_idx": tgt,
+                                    "level": lev_idx,
+                                })
+
+            enter_id = self.ids[self.enter_node] if self.enter_node is not None else None
+
+            return {
+                "num_layers": len(self.layers),
+                "max_level": self.max_level,
+                "enter_node": enter_id,
+                "enter_node_idx": self.enter_node,
+                "nodes": nodes,
+                "edges": edges,
+                "M": self.M,
+                "M0": self.M0,
+                "ef_construction": self.ef_construction,
+                "ef_search": self.ef_search,
+            }
