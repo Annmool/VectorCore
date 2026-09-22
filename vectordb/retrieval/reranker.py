@@ -74,10 +74,12 @@ class CrossEncoderReranker:
         query: str,
         candidates: List[Dict[str, Any]],
         top_k: int = 5,
+        min_score: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
         """
         Rerank candidate list from hybrid search down to top_k results.
         Each candidate should contain 'text' or 'metadata.text'.
+        If min_score is provided, filters out candidates below this relevance threshold.
         """
         if not candidates:
             return []
@@ -106,4 +108,11 @@ class CrossEncoderReranker:
 
         # Sort descending by rerank score
         reranked.sort(key=lambda x: x["rerank_score"], reverse=True)
+
+        # Apply relevance thresholding if min_score is specified
+        if min_score is not None and reranked:
+            top_score = reranked[0]["rerank_score"]
+            effective_min = max(min_score, top_score * 0.15)
+            reranked = [r for r in reranked if r["rerank_score"] >= effective_min]
+
         return reranked[:top_k]

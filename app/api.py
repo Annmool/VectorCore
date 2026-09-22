@@ -108,6 +108,7 @@ class RAGRequest(BaseModel):
     use_hybrid: bool = True
     provider: Optional[str] = "auto"
     filter: Optional[Dict[str, Any]] = None
+    min_score: float = 0.05
 
 
 class TextIngestRequest(BaseModel):
@@ -453,9 +454,17 @@ def rag_ask(req: RAGRequest):
     # 2. Rerank
     t_rerank_0 = time.perf_counter()
     if req.use_reranker and candidates:
-        final_context = state.reranker.rerank(req.query, candidates, top_k=req.top_k)
+        final_context = state.reranker.rerank(
+            req.query, candidates, top_k=req.top_k, min_score=req.min_score
+        )
     else:
-        final_context = candidates[:req.top_k]
+        if req.use_hybrid:
+            final_context = candidates[:req.top_k]
+        else:
+            final_context = [
+                c for c in candidates[:req.top_k]
+                if c.get("score", 1.0) >= req.min_score
+            ]
     rerank_ms = (time.perf_counter() - t_rerank_0) * 1000
 
     # 3. Generation & Grounding

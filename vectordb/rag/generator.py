@@ -133,6 +133,10 @@ class RAGGenerator:
 
         extracted_findings = []
         for idx, chunk in enumerate(context_chunks[:5], 1):
+            score = chunk.get("rerank_score")
+            if score is not None and score < 0.05:
+                continue
+
             text = chunk.get("text") or chunk.get("metadata", {}).get("text", "")
             sentences = re.split(r"(?<=[.?!])\s+", text)
 
@@ -146,17 +150,26 @@ class RAGGenerator:
                 scored_sentences.append((overlap, sent_clean))
 
             scored_sentences.sort(key=lambda x: x[0], reverse=True)
-            top_sentences = [s for score, s in scored_sentences[:2] if score > 0]
+            top_sentences = [s for score_val, s in scored_sentences[:2] if score_val > 0]
 
-            if not top_sentences and sentences:
-                top_sentences = [sentences[0].strip()]
+            # Only fallback to leading sentence if chunk itself has strong semantic relevance
+            chunk_score = score if score is not None else chunk.get("score", 1.0)
+            if not top_sentences and sentences and (chunk_score is None or chunk_score >= 0.20):
+                valid_sents = [s.strip() for s in sentences if len(s.strip()) >= 20]
+                if valid_sents:
+                    top_sentences = [valid_sents[0]]
 
             for s in top_sentences:
                 extracted_findings.append((idx, s))
 
         if not extracted_findings:
-            first_chunk_text = context_chunks[0].get("text", "")[:300]
-            return f"Based on the available corpus [1]: {first_chunk_text}..."
+            if context_chunks:
+                first_meta = context_chunks[0].get("metadata", {})
+                first_text = context_chunks[0].get("text") or first_meta.get("text", "")
+                valid_sents = [s.strip() for s in re.split(r"(?<=[.?!])\s+", first_text) if len(s.strip()) >= 20]
+                if valid_sents:
+                    return f"Based on the most relevant document [1]:\n- {valid_sents[0]} [1]"
+            return f"No relevant context chunks were found to answer the question: '{query}'."
 
         # Assemble synthesized answer
         answer_parts = [
@@ -168,8 +181,10 @@ class RAGGenerator:
                 seen_sentences.add(s)
                 answer_parts.append(f"- {s} [{idx}]")
 
+        active_chunk_count = len(set(idx for idx, _ in extracted_findings))
+        chunk_word = "chunk" if active_chunk_count == 1 else "chunks"
         answer_parts.append(
-            f"\n*Summary:* The retrieved evidence from {len(context_chunks)} relevant chunks answers the inquiry by highlighting the core mechanisms described above."
+            f"\n*Summary:* The retrieved evidence from {active_chunk_count} relevant {chunk_word} answers the inquiry by highlighting the core mechanisms described above."
         )
         return "\n".join(answer_parts)
 
@@ -182,6 +197,19 @@ class RAGGenerator:
         """
         Generate answer with provenance, citations, and timing breakdown.
         """
+        if not context_chunks:
+            return {
+                "answer": f"I could not find any relevant information in the knowledge base to answer the question: **'{query}'**. Please upload or index relevant documents.",
+                "citations": [],
+                "engine": "relevance_gate",
+                "latency_ms": 0.0,
+                "metrics": {
+                    "total_candidates_provided": 0,
+                    "citations_referenced_count": 0,
+                    "faithfulness_score": 1.0,
+                },
+            }
+
         start_time = time.time()
         prompt = build_rag_prompt(query, context_chunks)
         active_provider = provider or self.preferred_provider

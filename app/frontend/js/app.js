@@ -86,7 +86,7 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       const res = await fetch("/api/collection/seed", { method: "POST" });
       const data = await res.json();
-      alert(`Knowledge base ready: ${data.chunks_indexed || data.count} chunks indexed across 20 papers!`);
+      alert(`Knowledge base ready: ${data.chunks_indexed || data.count} chunks indexed across ${data.documents || 22} papers!`);
       refreshSystemStatus();
       fetchAndRenderHNSWGraph();
     } catch (e) {
@@ -199,8 +199,12 @@ document.addEventListener("DOMContentLoaded", () => {
 
     ragAnswerText.innerHTML = formattedHtml;
 
-    citationsCount.textContent = `${data.citations.length} Sources`;
+    citationsCount.textContent = `${data.citations.length} ${data.citations.length === 1 ? "Source" : "Sources"}`;
     citationsListBody.innerHTML = "";
+
+    if (data.citations.length === 0) {
+      citationsListBody.innerHTML = `<div class="placeholder-state" style="padding: 1.5rem 1rem; text-align: center; color: var(--text-muted);"><p>No sources met the relevance threshold.</p></div>`;
+    }
 
     data.citations.forEach((c) => {
       const citeCard = document.createElement("div");
