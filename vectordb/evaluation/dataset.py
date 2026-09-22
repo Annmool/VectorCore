@@ -266,6 +266,36 @@ This eliminates the instability, hyperparameter sensitivity, and memory overhead
 A Write-Ahead Log (WAL) appends serial mutation records (INSERT, DELETE, UPDATE) to sequential disk storage before modifying in-memory graph structures, guaranteeing zero data loss upon crash recovery.
 Log-Structured Merge (LSM) architectures buffer incoming vectors in an in-memory MemTable, periodically flushing immutable vector segments and posting lists to disk.
 Background compaction processes merge fragmented posting lists, rebuild pruned HNSW neighbor links, and remove soft-deleted tombstones, sustaining high query QPS during continuous real-time data ingestion."""
+    },
+    {
+        "id": "doc_glove_pennington_2014",
+        "title": "GloVe: Global Vectors for Word Representation",
+        "author": "Jeffrey Pennington, Richard Socher, Christopher D. Manning",
+        "year": 2014,
+        "category": "word_embeddings",
+        "tags": ["glove", "word_embeddings", "co_occurrence", "vector_space", "ann_benchmark"],
+        "content": """GloVe (Global Vectors) is an unsupervised learning algorithm that constructs dense vector representations of words by combining the advantages of global matrix factorization (such as LSA) and local context window methods (such as skip-gram).
+GloVe trains on the global word-word co-occurrence matrix X, where X_ij counts how often word j appears in the context of word i across the entire text corpus.
+The training objective minimizes a weighted least-squares loss: J = sum_{i,j=1}^V f(X_ij) * (w_i^T w_tilde_j + b_i + b_tilde_j - log(X_ij))^2.
+The weighting function f(X_ij) = min(1, (X_ij / x_max)^alpha), typically with alpha = 0.75 and x_max = 100, prevents very frequent words (like stopwords 'the', 'is') from dominating the parameter updates while ensuring rare co-occurrences are not overweighted.
+GloVe word vectors exhibit linear substructures in semantic vector space, enabling vector analogies via cosine arithmetic: vector('king') - vector('man') + vector('woman') yields vector('queen').
+Because pre-trained GloVe vector embeddings (such as GloVe-25, GloVe-50, and GloVe-100 trained on Wikipedia and Common Crawl) produce non-uniform semantic clusters, they serve as the canonical real-world benchmark dataset for approximate nearest neighbor (ANN) search algorithms evaluating angular and cosine similarity."""
+    },
+    {
+        "id": "doc_sift_lowe_2004",
+        "title": "Distinctive Image Features from Scale-Invariant Keypoints",
+        "author": "David G. Lowe",
+        "year": 2004,
+        "category": "computer_vision",
+        "tags": ["sift", "keypoints", "scale_invariant", "image_features", "ann_benchmark"],
+        "content": """The Scale-Invariant Feature Transform (SIFT) extracts distinctive invariant image features that are robust to image scale, 2D rotation, affine distortion, 3D viewpoint change, and illumination variations.
+SIFT identifies potential interest points across continuous scales using Difference of Gaussians (DoG) scale-space extrema detection: D(x, y, sigma) = (G(x, y, k * sigma) - G(x, y, sigma)) * I(x, y).
+Candidate keypoints are localized with sub-pixel precision, and unstable low-contrast points or edge responses along ridges are eliminated using Hessian matrix eigenvalues.
+Each surviving keypoint is assigned one or more dominant gradient orientations based on local image gradient directions, ensuring rotation invariance.
+To form the final feature descriptor, SIFT computes gradient magnitude and orientation histograms over a 4x4 spatial grid around the keypoint.
+With 8 orientation bins per spatial grid cell, each keypoint produces a 128-dimensional feature vector (4 x 4 x 8 = 128 dimensions).
+The 128-dimensional descriptor is normalized to unit L2 length and thresholded to resist non-linear illumination variations.
+Due to its high dimensionality, local cluster density, and standard Euclidean (L2) distance geometry, SIFT-128 (including SIFT10K and SIFT1M) became the premier reference benchmark dataset in computer science for evaluating nearest neighbor graph indexing and vector search libraries."""
     }
 ]
 
@@ -345,5 +375,15 @@ EVALUATION_QA_PAIRS: List[Dict[str, Any]] = [
         "question": "How does ScaNN anisotropic quantization improve inner product search over standard PQ?",
         "ground_truth_doc_ids": ["doc_scann_anisotropic_2020"],
         "expected_keywords": ["anisotropic", "parallel", "MIPS", "inner product", "loss"],
+    },
+    {
+        "question": "How does GloVe combine global co-occurrence statistics with local context windows, and why is it used for ANN benchmarks?",
+        "ground_truth_doc_ids": ["doc_glove_pennington_2014"],
+        "expected_keywords": ["co-occurrence matrix", "weighted least-squares", "vector arithmetic", "angular", "benchmark"],
+    },
+    {
+        "question": "How does SIFT generate 128-dimensional scale-invariant keypoints, and why is SIFT1M a standard Euclidean benchmark?",
+        "ground_truth_doc_ids": ["doc_sift_lowe_2004"],
+        "expected_keywords": ["Difference of Gaussians", "extrema", "128-dimensional", "gradient histograms", "SIFT1M", "Euclidean"],
     }
 ]
