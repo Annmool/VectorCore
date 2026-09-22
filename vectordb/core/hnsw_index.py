@@ -21,6 +21,10 @@ class HNSWIndex:
     - Heuristic neighbor selection for graph connectivity & diversity
     - Configurable M, M0, efConstruction, efSearch
     - Dynamic vector insertion & metadata filtering
+    - Pre-normalized unit vectors for fast cosine dot products
+    - Vectorized batched distance computation in search and descent
+    - Precomputed pairwise distance matrix for heuristic selection
+    - Preallocated buffer doubling for O(1) amortized insertion
     - Thread-safe operations via RLock
     """
 
@@ -57,11 +61,53 @@ class HNSWIndex:
 
         # Node properties & data storage
         self.node_levels: Dict[int, int] = {}
-        self.vectors: np.ndarray = np.empty((0, dim), dtype=np.float32)
         self.ids: List[str] = []
         self.id_to_idx: Dict[str, int] = {}
         self.metadata: List[Dict[str, Any]] = []
         self.is_deleted: List[bool] = []
+
+        # Vector buffers: capacity doubling buffer for raw vectors + normalized search vectors
+        self._capacity: int = 64
+        self._num_vectors: int = 0
+        self._vectors: np.ndarray = np.empty((self._capacity, dim), dtype=np.float32)
+        if self.metric == "cosine":
+            self._norm_vectors: np.ndarray = np.empty((self._capacity, dim), dtype=np.float32)
+        else:
+            self._norm_vectors = self._vectors
+
+    @property
+    def vectors(self) -> np.ndarray:
+        """Active raw vectors stored in the index."""
+        count = max(len(self.ids), self._num_vectors)
+        return self._vectors[:count]
+
+    @vectors.setter
+    def vectors(self, new_arr: np.ndarray) -> None:
+        """
+        Handle reassignment to index.vectors (e.g. during reset, compaction, or deserialization).
+        Reallocates internal buffer with power-of-2 capacity and keeps normalized vectors synchronized.
+        """
+        arr = np.asarray(new_arr, dtype=np.float32)
+        n = len(arr)
+        self._num_vectors = n
+        if n == 0:
+            self._capacity = 64
+            self._vectors = np.empty((self._capacity, self.dim), dtype=np.float32)
+            if self.metric == "cosine":
+                self._norm_vectors = np.empty((self._capacity, self.dim), dtype=np.float32)
+            else:
+                self._norm_vectors = self._vectors
+        else:
+            self._capacity = max(64, int(2 ** math.ceil(math.log2(max(n, 1)))))
+            self._vectors = np.empty((self._capacity, self.dim), dtype=np.float32)
+            self._vectors[:n] = arr
+            if self.metric == "cosine":
+                self._norm_vectors = np.empty((self._capacity, self.dim), dtype=np.float32)
+                norms = np.linalg.norm(arr, axis=-1, keepdims=True)
+                norms = np.where(norms < 1e-10, 1.0, norms)
+                self._norm_vectors[:n] = arr / norms
+            else:
+                self._norm_vectors = self._vectors
 
     def __len__(self) -> int:
         with self._lock:
@@ -72,8 +118,71 @@ class HNSWIndex:
         unif = self.rng.uniform(1e-9, 1.0)
         return int(-math.log(unif) * self.mL)
 
+    def _normalize_vec(self, vec: np.ndarray) -> np.ndarray:
+        """Normalize a single vector to unit L2 norm if metric is cosine."""
+        if self.metric == "cosine":
+            norm = float(np.linalg.norm(vec))
+            if norm > 1e-10:
+                return vec / norm
+        return vec
+
+    def _dists_to_nodes(self, query: np.ndarray, node_indices: List[int]) -> np.ndarray:
+        """
+        Compute distances between a query and a list of node indices in one vectorized NumPy call.
+        Query and stored vectors must already be normalized for cosine.
+        Centralizes metric branching for 1-to-many calculations.
+        """
+        if not node_indices:
+            return np.empty(0, dtype=np.float32)
+        vecs = self._norm_vectors[node_indices]
+        if self.metric == "cosine":
+            # Unit normalized vectors: cosine distance is 1.0 - dot product
+            dots = np.dot(vecs, query)
+            return np.maximum(0.0, 1.0 - dots)
+        elif self.metric == "l2":
+            diff = vecs - query
+            return np.sqrt(np.sum(diff * diff, axis=-1))
+        elif self.metric == "dot":
+            return -np.dot(vecs, query)
+        elif self.metric == "manhattan":
+            return np.sum(np.abs(vecs - query), axis=-1)
+        else:
+            return compute_distance(query, vecs, metric=self.metric)
+
+    def _pairwise_distances(self, matrix: np.ndarray) -> np.ndarray:
+        """
+        Compute pairwise distance matrix for candidate vectors (shape: C x dim) in one vectorized call.
+        Vectors in matrix must already be normalized for cosine.
+        Centralizes metric branching for matrix-to-matrix calculations.
+        """
+        if len(matrix) == 0:
+            return np.empty((0, 0), dtype=np.float32)
+        if self.metric == "cosine":
+            sim = np.dot(matrix, matrix.T)
+            np.fill_diagonal(sim, 1.0)
+            return np.maximum(0.0, 1.0 - sim)
+        elif self.metric == "l2":
+            sq_norms = np.sum(matrix * matrix, axis=1, keepdims=True)
+            sq_dists = np.maximum(0.0, sq_norms + sq_norms.T - 2.0 * np.dot(matrix, matrix.T))
+            np.fill_diagonal(sq_dists, 0.0)
+            return np.sqrt(sq_dists)
+        elif self.metric == "dot":
+            return -np.dot(matrix, matrix.T)
+        elif self.metric == "manhattan":
+            dists = np.sum(np.abs(matrix[:, np.newaxis, :] - matrix[np.newaxis, :, :]), axis=-1)
+            np.fill_diagonal(dists, 0.0)
+            return dists
+        else:
+            return compute_distance(matrix, matrix, metric=self.metric)
+
     def _dist(self, vec_a: np.ndarray, vec_b: np.ndarray) -> float:
-        """Compute scalar distance between two single vectors."""
+        """Compute scalar distance between two vectors."""
+        if self.metric == "cosine":
+            norm_a = float(np.linalg.norm(vec_a))
+            norm_b = float(np.linalg.norm(vec_b))
+            if abs(norm_a - 1.0) < 1e-4 and abs(norm_b - 1.0) < 1e-4:
+                return float(max(0.0, 1.0 - np.dot(vec_a, vec_b)))
+            return float(compute_distance(vec_a, vec_b, metric="cosine"))
         return float(compute_distance(vec_a, vec_b, metric=self.metric))
 
     def _search_layer(
@@ -86,43 +195,47 @@ class HNSWIndex:
     ) -> List[Tuple[float, int]]:
         """
         Search for ef nearest neighbors at a specific graph level.
-        If accept is provided, only nodes satisfying accept(node) are counted in the ef result set,
-        while all reachable nodes can be used as traversal stepping stones in candidates.
+        query must be normalized if metric == 'cosine'.
+        Computes distances for all unvisited neighbors in one vectorized NumPy call.
         Returns list of (distance, node_idx) sorted ascending by distance.
         """
         visited: Set[int] = set(enter_points)
-
-        # Candidates min-heap: (dist, node_idx)
         candidates: List[Tuple[float, int]] = []
-        
-        # Best elements max-heap: (-dist, node_idx)
         w_best: List[Tuple[float, int]] = []
 
-        for ep in enter_points:
-            d = self._dist(query, self.vectors[ep])
-            heapq.heappush(candidates, (d, ep))
-            if accept is None or accept(ep):
-                heapq.heappush(w_best, (-d, ep))
+        if enter_points:
+            ep_dists = self._dists_to_nodes(query, enter_points)
+            for d, ep in zip(ep_dists, enter_points):
+                d_val = float(d)
+                heapq.heappush(candidates, (d_val, ep))
+                if accept is None or accept(ep):
+                    heapq.heappush(w_best, (-d_val, ep))
 
         while candidates:
             c_dist, c_node = heapq.heappop(candidates)
             if len(w_best) >= ef and c_dist > -w_best[0][0]:
                 break
 
-            # Explore neighbors at this level
             neighbors = self.layers[level].get(c_node, set())
-            for neighbor in neighbors:
-                if neighbor not in visited:
-                    visited.add(neighbor)
-                    d_neighbor = self._dist(query, self.vectors[neighbor])
-                    worst = -w_best[0][0] if len(w_best) >= ef else float("inf")
+            unvisited = [n for n in neighbors if n not in visited]
+            if not unvisited:
+                continue
 
-                    if d_neighbor < worst or len(w_best) < ef:
-                        heapq.heappush(candidates, (d_neighbor, neighbor))
-                        if accept is None or accept(neighbor):
-                            heapq.heappush(w_best, (-d_neighbor, neighbor))
-                            if len(w_best) > ef:
-                                heapq.heappop(w_best)
+            for n in unvisited:
+                visited.add(n)
+
+            # Batched vectorized distance computation for all unvisited neighbors
+            d_neighbors = self._dists_to_nodes(query, unvisited)
+            for neighbor, d_neighbor in zip(unvisited, d_neighbors):
+                d_val = float(d_neighbor)
+                worst = -w_best[0][0] if len(w_best) >= ef else float("inf")
+
+                if d_val < worst or len(w_best) < ef:
+                    heapq.heappush(candidates, (d_val, neighbor))
+                    if accept is None or accept(neighbor):
+                        heapq.heappush(w_best, (-d_val, neighbor))
+                        if len(w_best) > ef:
+                            heapq.heappop(w_best)
 
         # Return sorted ascending by distance
         results = [(-neg_d, node) for neg_d, node in w_best]
@@ -149,15 +262,22 @@ class HNSWIndex:
     ) -> List[int]:
         """
         Heuristic neighbor selection (SELECT-NEIGHBORS-HEURISTIC):
-        Selects neighbors that are not only close to query, but also diverse (forming small-world edges).
+        Computes pairwise distance matrix once via _pairwise_distances and evaluates greedy selection.
         """
         # Extend candidates with neighbors of candidates at `level` if requested (Algorithm 4)
         cands_dict = {node: d for d, node in candidates}
         if extend_candidates and level is not None and level < len(self.layers):
+            to_query = []
             for _, c_node in list(candidates):
                 for adj in self.layers[level].get(c_node, set()):
                     if adj not in cands_dict and not self.is_deleted[adj]:
-                        cands_dict[adj] = self._dist(query, self.vectors[adj])
+                        to_query.append(adj)
+                        cands_dict[adj] = 0.0
+            if to_query:
+                to_query_unique = list(dict.fromkeys(to_query))
+                dists = self._dists_to_nodes(query, to_query_unique)
+                for adj, d in zip(to_query_unique, dists):
+                    cands_dict[adj] = float(d)
             candidates = [(d, node) for node, d in cands_dict.items()]
 
         if len(candidates) <= max_m:
@@ -166,57 +286,76 @@ class HNSWIndex:
 
         # Candidates sorted by distance to query
         candidates_sorted = sorted(candidates, key=lambda x: x[0])
-        w_selected: List[int] = []
-        w_selected_vecs: List[np.ndarray] = []
-        discarded: List[Tuple[float, int]] = []
+        cand_nodes = [node for _, node in candidates_sorted]
+        d_query = [d for d, _ in candidates_sorted]
 
-        for d_qe, e_node in candidates_sorted:
-            e_vec = self.vectors[e_node]
-            # Check if e_node is closer to any already selected neighbor than to query
+        # Compute pairwise distance matrix ONCE for all candidates
+        cand_matrix = self._norm_vectors[cand_nodes]
+        dist_matrix = self._pairwise_distances(cand_matrix)
+
+        selected_indices: List[int] = []
+        discarded_indices: List[int] = []
+
+        for i, d_qe in enumerate(d_query):
             is_good = True
-            for sel_vec in w_selected_vecs:
-                d_cand_sel = self._dist(e_vec, sel_vec)
-                if d_cand_sel < d_qe:
+            for sel_idx in selected_indices:
+                if dist_matrix[i, sel_idx] < d_qe:
                     is_good = False
                     break
 
             if is_good:
-                w_selected.append(e_node)
-                w_selected_vecs.append(e_vec)
-                if len(w_selected) == max_m:
+                selected_indices.append(i)
+                if len(selected_indices) == max_m:
                     break
             else:
-                discarded.append((d_qe, e_node))
+                discarded_indices.append(i)
 
         # Optionally keep pruned connections up to max_m
-        if keep_pruned_connections and len(w_selected) < max_m:
-            for _, disc_node in discarded:
-                if disc_node not in w_selected:
-                    w_selected.append(disc_node)
-                    if len(w_selected) == max_m:
+        if keep_pruned_connections and len(selected_indices) < max_m:
+            for disc_idx in discarded_indices:
+                if disc_idx not in selected_indices:
+                    selected_indices.append(disc_idx)
+                    if len(selected_indices) == max_m:
                         break
 
-        return w_selected
+        return [cand_nodes[i] for i in selected_indices]
 
     def add(self, id: str, vector: np.ndarray, meta: Optional[Dict[str, Any]] = None) -> int:
         """Insert a vector into the HNSW graph."""
         with self._lock:
-            vector = np.asarray(vector, dtype=np.float32).flatten()
+            raw_vector = np.asarray(vector, dtype=np.float32).flatten()
+            norm_vector = self._normalize_vec(raw_vector)
 
             if id in self.id_to_idx:
-                # Re-insertion: soft-tombstone the old node so its edges stay intact for routing,
-                # and insert the new node fresh with new edges matching the new vector.
+                # Re-insertion: soft-tombstone the old node so its edges stay intact for routing
                 old_idx = self.id_to_idx[id]
                 self.is_deleted[old_idx] = True
 
             idx = len(self.ids)
-            vec_2d = vector.reshape(1, self.dim)
-            if len(self.vectors) == 0:
-                self.vectors = vec_2d
-            else:
-                self.vectors = np.vstack([self.vectors, vec_2d])
+
+            # Preallocated buffer growth with capacity doubling
+            if idx >= self._capacity:
+                new_capacity = max(64, self._capacity * 2)
+                new_vectors = np.empty((new_capacity, self.dim), dtype=np.float32)
+                if idx > 0:
+                    new_vectors[:idx] = self._vectors[:idx]
+                self._vectors = new_vectors
+
+                if self.metric == "cosine":
+                    new_norm_vectors = np.empty((new_capacity, self.dim), dtype=np.float32)
+                    if idx > 0:
+                        new_norm_vectors[:idx] = self._norm_vectors[:idx]
+                    self._norm_vectors = new_norm_vectors
+                else:
+                    self._norm_vectors = self._vectors
+                self._capacity = new_capacity
+
+            self._vectors[idx] = raw_vector
+            if self.metric == "cosine":
+                self._norm_vectors[idx] = norm_vector
 
             self.ids.append(id)
+            self._num_vectors = len(self.ids)
             self.id_to_idx[id] = idx
             self.metadata.append(meta or {})
             self.is_deleted.append(False)
@@ -238,36 +377,37 @@ class HNSWIndex:
 
             # Multi-layer insertion
             curr_obj = self.enter_node
-            curr_dist = self._dist(vector, self.vectors[curr_obj])
+            curr_dist = float(self._dists_to_nodes(norm_vector, [curr_obj])[0])
 
             # 1. Top-down greedy routing to find closest entry point down to node_level + 1
             for lev in range(self.max_level, node_level, -1):
-                changed = True
-                while changed:
-                    changed = False
-                    neighbors = self.layers[lev].get(curr_obj, set())
-                    for neighbor in neighbors:
-                        d = self._dist(vector, self.vectors[neighbor])
-                        if d < curr_dist:
-                            curr_dist = d
-                            curr_obj = neighbor
-                            changed = True
+                visited: Set[int] = {curr_obj}
+                while True:
+                    unvisited = [n for n in self.layers[lev].get(curr_obj, set()) if n not in visited]
+                    if not unvisited:
+                        break
+                    visited.update(unvisited)
+                    dists = self._dists_to_nodes(norm_vector, unvisited)
+                    j = int(np.argmin(dists))
+                    if dists[j] < curr_dist:
+                        curr_dist = float(dists[j])
+                        curr_obj = unvisited[j]
+                    else:
+                        break
 
             # 2. From min(max_level, node_level) down to 0: search layer and connect neighbors
             enter_points = [curr_obj]
             for lev in range(min(self.max_level, node_level), -1, -1):
-                # Ensure dictionary exists for this level
                 if idx not in self.layers[lev]:
                     self.layers[lev][idx] = set()
 
-                # Search layer with ef_construction (accept=None allows routing via tombstones)
-                candidates = self._search_layer(vector, enter_points, ef=self.ef_construction, level=lev, accept=None)
+                candidates = self._search_layer(norm_vector, enter_points, ef=self.ef_construction, level=lev, accept=None)
                 enter_points = [node for _, node in candidates]
 
                 # Select M neighbors for new node at all levels (including level 0)
                 if self.heuristic_neighbors:
                     neighbors_to_add = self._select_neighbors_heuristic(
-                        vector, candidates, max_m=self.M, level=lev, extend_candidates=self.extend_candidates
+                        norm_vector, candidates, max_m=self.M, level=lev, extend_candidates=self.extend_candidates
                     )
                 else:
                     neighbors_to_add = self._select_neighbors_simple(candidates, max_m=self.M)
@@ -286,12 +426,11 @@ class HNSWIndex:
 
                     # Shrink neighbor's connections if exceeding shrink_cap
                     if len(self.layers[lev][neighbor]) > shrink_cap:
-                        neigh_vec = self.vectors[neighbor]
-                        neigh_cands = [
-                            (self._dist(neigh_vec, self.vectors[n]), n)
-                            for n in self.layers[lev][neighbor]
-                            if n != neighbor
-                        ]
+                        other_nodes = [n for n in self.layers[lev][neighbor] if n != neighbor]
+                        neigh_vec = self._norm_vectors[neighbor]
+                        dists = self._dists_to_nodes(neigh_vec, other_nodes)
+                        neigh_cands = [(float(d), n) for d, n in zip(dists, other_nodes)]
+
                         if self.heuristic_neighbors:
                             shrunk = self._select_neighbors_heuristic(
                                 neigh_vec, neigh_cands, max_m=shrink_cap, level=lev, extend_candidates=self.extend_candidates
@@ -301,7 +440,6 @@ class HNSWIndex:
                         self.layers[lev][neighbor] = set(shrunk)
 
             if node_level > self.max_level:
-                # Update global enter node
                 for lev in range(self.max_level + 1, node_level + 1):
                     self.layers[lev][idx] = set()
                 self.max_level = node_level
@@ -339,6 +477,7 @@ class HNSWIndex:
         """
         Rebuild the HNSW index from scratch using only active (non-deleted) nodes.
         Cleans up accumulated tombstones from re-additions or deletions.
+        Sensibly resets capacity to next power of 2 of active count.
         """
         with self._lock:
             active_mask = [not d for d in self.is_deleted]
@@ -346,16 +485,24 @@ class HNSWIndex:
                 return
 
             active_ids = [self.ids[i] for i, act in enumerate(active_mask) if act]
-            active_vecs = self.vectors[active_mask] if len(self.vectors) > 0 else np.empty((0, self.dim), dtype=np.float32)
+            active_vecs = [self._vectors[i] for i, act in enumerate(active_mask) if act]
             active_metas = [self.metadata[i] for i, act in enumerate(active_mask) if act]
 
-            # Reset internal storage
+            # Reset internal storage with sensible capacity
+            active_count = len(active_ids)
+            self._capacity = max(64, int(2 ** math.ceil(math.log2(max(active_count, 1)))))
+            self._vectors = np.empty((self._capacity, self.dim), dtype=np.float32)
+            if self.metric == "cosine":
+                self._norm_vectors = np.empty((self._capacity, self.dim), dtype=np.float32)
+            else:
+                self._norm_vectors = self._vectors
+
             self.layers = []
             self.enter_node = None
             self.max_level = -1
             self.node_levels = {}
-            self.vectors = np.empty((0, self.dim), dtype=np.float32)
             self.ids = []
+            self._num_vectors = 0
             self.id_to_idx = {}
             self.metadata = []
             self.is_deleted = []
@@ -382,7 +529,8 @@ class HNSWIndex:
             if active_count == 0:
                 return []
 
-            query = np.asarray(query, dtype=np.float32).flatten()
+            query_raw = np.asarray(query, dtype=np.float32).flatten()
+            query_norm = self._normalize_vec(query_raw)
 
             # If filter is provided, check selectivity
             if filter_fn is not None:
@@ -391,10 +539,8 @@ class HNSWIndex:
                     return []
                 # If filter is very selective (< 1% match or <= 50 matching nodes), fall back to exact scan
                 if len(matching_indices) <= 50 or (len(matching_indices) / max(active_count, 1)) < 0.01:
-                    results = []
-                    for node_idx in matching_indices:
-                        d = self._dist(query, self.vectors[node_idx])
-                        results.append((d, node_idx))
+                    dists = self._dists_to_nodes(query_norm, matching_indices)
+                    results = [(float(d), node_idx) for d, node_idx in zip(dists, matching_indices)]
                     results.sort(key=lambda x: x[0])
                     return [
                         {
@@ -410,20 +556,23 @@ class HNSWIndex:
 
             # Standard HNSW traversal
             curr_obj = self.enter_node
-            curr_dist = self._dist(query, self.vectors[curr_obj])
+            curr_dist = float(self._dists_to_nodes(query_norm, [curr_obj])[0])
 
             # 1. Greedy top-down traversal from max_level down to 1
             for lev in range(self.max_level, 0, -1):
-                changed = True
-                while changed:
-                    changed = False
-                    neighbors = self.layers[lev].get(curr_obj, set())
-                    for neighbor in neighbors:
-                        d = self._dist(query, self.vectors[neighbor])
-                        if d < curr_dist:
-                            curr_dist = d
-                            curr_obj = neighbor
-                            changed = True
+                visited: Set[int] = {curr_obj}
+                while True:
+                    unvisited = [n for n in self.layers[lev].get(curr_obj, set()) if n not in visited]
+                    if not unvisited:
+                        break
+                    visited.update(unvisited)
+                    dists = self._dists_to_nodes(query_norm, unvisited)
+                    j = int(np.argmin(dists))
+                    if dists[j] < curr_dist:
+                        curr_dist = float(dists[j])
+                        curr_obj = unvisited[j]
+                    else:
+                        break
 
             # 2. Bottom layer 0: beam search with iterative ef expansion
             accept_pred = (
@@ -432,7 +581,7 @@ class HNSWIndex:
 
             curr_ef = max(ef_search or self.ef_search, k)
             while True:
-                candidates = self._search_layer(query, [curr_obj], ef=curr_ef, level=0, accept=accept_pred)
+                candidates = self._search_layer(query_norm, [curr_obj], ef=curr_ef, level=0, accept=accept_pred)
                 if len(candidates) >= k or curr_ef >= active_count:
                     break
                 next_ef = min(curr_ef * 2, active_count)
@@ -529,6 +678,7 @@ class HNSWIndex:
                                     "source_idx": src,
                                     "target_idx": tgt,
                                     "level": lev_idx,
+                                    "layer": lev_idx,
                                 })
 
             enter_id = self.ids[self.enter_node] if self.enter_node is not None else None
