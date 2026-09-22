@@ -71,3 +71,5 @@ Thumbs.db
 
 # VectorCore generated logs & temp WAL (keep collections structure)
 *.log
+data/
+*.hdf5

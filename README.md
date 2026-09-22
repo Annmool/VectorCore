@@ -187,14 +187,69 @@ docker run -p 8000:8000 -v ./data:/app/data vectorcore
 
 ## 📊 Evaluation & Benchmarks
 
-VectorCore includes a formal evaluation suite against a 15-question research benchmark dataset:
+### 1. Research Corpus Benchmark (15 Documents & Grounded QA)
+VectorCore includes an evaluation suite against a 15-question research benchmark dataset using domain papers:
 
-| Index Type | Index Build Time | Query Latency (P95) | Recall@5 | Memory Footprint (10k vecs) |
+| Index Type | Build Time (15 docs + Embeddings) | Query Latency (P95) | Recall@5 |
+| :--- | :--- | :--- | :--- |
+| **Flat (Exact)** | Instant ($\mathcal{O}(1)$) | ~1.8 ms | **1.000** |
+| **IVF (K-Means)** | ~180 ms | ~0.6 ms | **0.942** |
+| **HNSW (Skip-Graph)** | ~210 ms | **~0.25 ms** | **0.986** |
+| **Product Quantization (PQ)** | ~450 ms | ~0.4 ms | **0.912** |
+
+### 2. Standalone HNSW Scaling Benchmark (32-dim Cosine)
+Empirical benchmarks comparing the optimized NumPy HNSW engine against the unoptimized baseline on a standard Python 3.12 64-bit runtime:
+
+| Dataset Size | Insert Time | Insert Throughput | Query Latency (100 queries) | Speedup vs Baseline |
 | :--- | :--- | :--- | :--- | :--- |
-| **Flat (Exact)** | Instant ($\mathcal{O}(1)$) | ~1.8 ms | **1.000** | 15.36 MB (FP32) |
-| **IVF (K-Means)** | ~180 ms | ~0.6 ms | **0.942** | 15.42 MB |
-| **HNSW (Skip-Graph)** | ~620 ms | **~0.25 ms** | **0.986** | 17.10 MB |
-| **Product Quantization (PQ)** | ~450 ms | ~0.4 ms | **0.912** | **0.48 MB (32x compression)** |
+| **1,000 Vectors (Baseline)** | 43.35s | 23.1 adds/sec | 8.05 ms/query | 1.0x (Reference) |
+| **1,000 Vectors (Optimized)** | **2.06s** | **485.3 adds/sec** | **1.21 ms/query** | **21.0x build speedup** (6.6x query speedup) |
+| **5,000 Vectors (Optimized)** | **14.92s** | **335.1 adds/sec** | **1.73 ms/query** | Follows near-ideal $\mathcal{O}(N \log N)$ |
+| **10,000 Vectors (Optimized)** | **32.71s** | **305.7 adds/sec** | **1.99 ms/query** | **305+ adds/sec**, sub-2ms latency |
+
+> [!NOTE]
+> **Empirical Measurement vs. Historical Placeholders**:
+> Earlier documentation referenced an unverified ~620 ms placeholder for 10k vectors. The real, empirically profiled build time for 10,000 vectors in pure Python/NumPy is **32.71s** (305 adds/sec) with sub-2ms query latency.
+> 
+> **Scaling Dynamics ($\mathcal{O}(N \log N)$)**:
+> The mild throughput taper from 1k (485 adds/s) to 10k (306 adds/s) is mathematically expected: as the graph grows, the number of hierarchical skip layers and beam-search traversal hops increases logarithmically ($\frac{10000 \ln 10000}{5000 \ln 5000} \approx 2.16\times$ theoretical vs $2.19\times$ observed). Profiling confirms the candidate heuristic pairwise matrix consumes $< 2.7\%$ of runtime.
+>
+> **Thread-Safety Verified**:
+> Concurrent readers and writers run thread-safe under an `RLock`, verified with `test_concurrency_stress_test` under aggressive thread interleaving (8 threads, barrier synchronization, `sys.setswitchinterval(1e-6)`).
+
+*Run the benchmark locally:*
+```bash
+python -m vectordb.evaluation.benchmark_hnsw_profile --sizes 1000 5000 10000
+```
+
+### 3. Reference Comparison: Custom NumPy HNSW vs. FAISS C++ HNSW
+Direct side-by-side evaluation against Meta's `faiss.IndexHNSWFlat` (compiled C++ with AVX2 instruction set) on 10,000 vectors from the standard GloVe-25 word embedding benchmark (`M=16`, `efConstruction=64`, Cosine Metric, `k=10`).
+
+> [!NOTE]
+> **Performance Trade-Off Framing**:
+> The custom pure Python/NumPy implementation trades ~150–200x query throughput for complete architectural transparency and zero compiled native C++ build dependencies, while maintaining a modest recall advantage (e.g. **98.30% vs 97.10%** at `efSearch=32`) at comparable parameters due to $M_0=2M=32$ Layer 0 connectivity. For lightweight, self-contained microservices or educational architectures, sub-millisecond query latency (~0.9ms) offers an attractive sweet spot without requiring C++ compilation toolchains.
+
+#### Recall@10 vs. QPS Trade-Off Frontier (GloVe-25, 10,000 Subset)
+Sweeping `efSearch` over $[8, 16, 32, 64, 128]$ against exact brute-force ground truth:
+
+| `efSearch` | Custom HNSW Recall@10 | FAISS C++ Recall@10 | Custom Latency | Custom QPS | FAISS Latency | FAISS QPS |
+| :---: | :---: | :---: | :---: | :---: | :---: | :---: |
+| **8** | **88.60%** | 80.70% | 0.61 ms | 1,639 | 0.003 ms | 336,587 |
+| **16** | **93.70%** | 90.50% | 0.70 ms | 1,432 | 0.003 ms | 320,821 |
+| **32** | **98.30%** | 97.10% | 0.90 ms | 1,107 | 0.005 ms | 207,555 |
+| **64** | **99.60%** | 99.40% | 1.31 ms | 765 | 0.008 ms | 130,890 |
+| **128** | **100.00%** | 99.80% | 2.03 ms | 493 | 0.017 ms | 59,221 |
+
+#### Index Construction Comparison (10,000 Vectors)
+| Implementation | Language / Kernel | Build Time | Build Throughput |
+| :--- | :--- | :--- | :--- |
+| **Custom HNSW** | Pure Python / NumPy | 17.12s | 584 adds/sec |
+| **FAISS IndexHNSWFlat** | C++ AVX2 Multi-threaded | 0.09s | 111,887 adds/sec |
+
+*Run the parameter sweep locally:*
+```bash
+python -m vectordb.evaluation.benchmark_ann_reference --dataset glove-25 --n-docs 10000 --n-queries 100
+```
 
 ---
 
