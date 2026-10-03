@@ -3,21 +3,28 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>VectorCore &bull; Mini Vector Database & RAG Console</title>
+  <title>VectorCore &bull; Mini Vector Database & Grounded RAG Console</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=JetBrains+Mono:wght@400;500;600;700;800&family=Outfit:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="alternate icon" href="favicon.svg">
   <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+  <!-- Ambient Living Mesh Aura Backdrop -->
+  <div class="ambient-mesh">
+    <div class="aura-blob aura-1"></div>
+    <div class="aura-blob aura-2"></div>
+    <div class="aura-blob aura-3"></div>
+  </div>
+
   <div class="app-container">
-    <!-- Slim, Sleek Left Sidebar -->
+    <!-- Sleek Left Sidebar Navigation -->
     <aside class="sidebar">
       <div class="brand">
         <div class="logo-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
             <polygon points="12 2 2 7 12 12 22 7 12 2"></polygon>
             <polyline points="2 17 12 22 22 17"></polyline>
             <polyline points="2 12 12 17 22 12"></polyline>
@@ -25,7 +32,7 @@
         </div>
         <div>
           <h1 class="brand-title">VectorCore</h1>
-          <div class="brand-subtitle">SCRATCH VECTOR DB</div>
+          <div class="brand-subtitle">FIRST-PRINCIPLES DB</div>
         </div>
       </div>
 
@@ -74,7 +81,7 @@
       <!-- Sidebar Telemetry Card -->
       <div class="sidebar-status-card">
         <div class="status-header">
-          <span>Telemetry</span>
+          <span>Engine Telemetry</span>
           <div class="live-badge">
             <span class="pulse-indicator"></span>
             <span>LIVE</span>
@@ -86,7 +93,7 @@
         </div>
         <div class="status-metric">
           <span class="metric-label">Indexed Vectors</span>
-          <span class="metric-val highlight" id="status-vectors">94</span>
+          <span class="metric-val highlight" id="status-vectors">--</span>
         </div>
         <div class="status-metric">
           <span class="metric-label">Dimensions</span>
@@ -128,7 +135,7 @@
         <div class="rag-layout">
           <div class="card query-card">
             <div class="sample-queries-bar">
-              <span class="sample-label">Suggested:</span>
+              <span class="sample-label">Presets:</span>
               <button class="sample-chip" data-q="How does HNSW achieve logarithmic search complexity and maintain connectivity across layers?">HNSW Logarithmic Search</button>
               <button class="sample-chip" data-q="What is Asymmetric Distance Computation in Product Quantization and how does it save memory?">Product Quantization ADC</button>
               <button class="sample-chip" data-q="Why does BM25 use the k1 and b parameters instead of raw term frequency?">BM25 k1 & b Parameters</button>
@@ -140,9 +147,9 @@
 
             <form id="rag-form" class="rag-input-form">
               <div class="input-wrapper">
-                <textarea id="rag-query-input" placeholder="Ask a question grounded in the Vector Database..." rows="3" required></textarea>
+                <textarea id="rag-query-input" placeholder="Ask a question grounded in the Vector Database (e.g., 'How does FlashAttention optimize GPU SRAM utilization?')..." rows="3" required></textarea>
                 <button type="submit" class="btn btn-primary btn-ask" id="btn-submit-rag">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"></line><polygon points="22 2 15 22 11 13 2 9 22 2"></polygon></svg>
                   <span>Generate RAG Answer</span>
                 </button>
               </div>
@@ -157,11 +164,11 @@
                 <label class="toggle-control">
                   <input type="checkbox" id="rag-toggle-rerank" checked>
                   <span class="toggle-slider"></span>
-                  <span class="toggle-text">Cross-Encoder Reranker</span>
+                  <span class="toggle-text">Cross-Encoder Neural Reranker</span>
                 </label>
 
                 <div class="inline-select">
-                  <span>Top-K:</span>
+                  <span>Top-K Chunks:</span>
                   <select id="rag-topk-select" class="custom-select-sm">
                     <option value="3">3</option>
                     <option value="5" selected>5</option>
@@ -186,28 +193,28 @@
               <div class="answer-body" id="rag-answer-text">
                 <div class="placeholder-state">
                   <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                  <p>Ask a question or select a sample above to execute vector retrieval, reranking, and citation generation.</p>
+                  <p>Ask a question or select a preset above to execute vector retrieval, neural reranking, and citation generation.</p>
                 </div>
               </div>
 
               <div class="latency-waterfall" id="rag-latency-breakdown" style="display:none;">
-                <h4 class="waterfall-title">End-to-End Latency Breakdown</h4>
+                <h4 class="waterfall-title">End-to-End Latency Waterfall</h4>
                 <div class="waterfall-bars">
                   <div class="stage-info-row">
-                    <div class="stage-info"><span>1. Hybrid Search</span><span class="stage-time" id="time-retrieval">0ms</span></div>
+                    <div class="stage-info"><span>1. Hybrid Search (Dense + BM25)</span><span class="stage-time" id="time-retrieval">0ms</span></div>
                     <div class="bar-track"><div class="bar-fill bar-blue" id="fill-retrieval" style="width: 0%;"></div></div>
                   </div>
                   <div class="stage-info-row">
-                    <div class="stage-info"><span>2. Cross-Encoder Rerank</span><span class="stage-time" id="time-rerank">0ms</span></div>
+                    <div class="stage-info"><span>2. Cross-Encoder Neural Rerank</span><span class="stage-time" id="time-rerank">0ms</span></div>
                     <div class="bar-track"><div class="bar-fill bar-purple" id="fill-rerank" style="width: 0%;"></div></div>
                   </div>
                   <div class="stage-info-row">
-                    <div class="stage-info"><span>3. Citation Grounding</span><span class="stage-time" id="time-gen">0ms</span></div>
+                    <div class="stage-info"><span>3. Citation Grounding & Synthesis</span><span class="stage-time" id="time-gen">0ms</span></div>
                     <div class="bar-track"><div class="bar-fill bar-green" id="fill-gen" style="width: 0%;"></div></div>
                   </div>
                 </div>
                 <div class="waterfall-total">
-                  <span>Total Latency:</span>
+                  <span>Total End-to-End Latency:</span>
                   <strong id="time-total">0.0ms</strong>
                 </div>
               </div>
@@ -250,7 +257,7 @@
               </div>
 
               <div class="filter-group">
-                <label>Dense Weight (&alpha;): <span id="alpha-val-display" style="font-family: var(--font-mono); color: #818cf8;">0.65</span></label>
+                <label>Dense Weight (&alpha;): <span id="alpha-val-display" style="font-family: var(--font-mono); color: var(--neon-cyan);">0.65</span></label>
                 <input type="range" id="studio-alpha-slider" min="0" max="1" step="0.05" value="0.65" class="custom-range">
               </div>
 
@@ -361,7 +368,7 @@
               <div class="legend-item"><span class="legend-dot dot-ep"></span> Global Entry Point (Layer max)</div>
               <div class="legend-item"><span class="legend-dot dot-l2"></span> Higher Layers (Express Skip-edges)</div>
               <div class="legend-item"><span class="legend-dot dot-l0"></span> Base Layer 0 (Dense Graph)</div>
-              <div class="legend-item"><span class="legend-dot dot-active-hop" style="background:#00f59b; box-shadow:0 0 8px #00f59b;"></span> Active Traversal Beam</div>
+              <div class="legend-item"><span class="legend-dot dot-active-hop"></span> Active Traversal Beam</div>
               <span style="color: var(--text-dim); margin-left: auto; font-size: 0.72rem;">Hover nodes to inspect metadata</span>
             </div>
 
@@ -457,7 +464,7 @@
         </div>
       </section>
 
-      <!-- Tab 4: Chunking Comparator -->
+      <!-- Tab 5: Chunking Comparator -->
       <section class="tab-pane" id="pane-chunking-lab">
         <div class="chunking-layout">
           <div class="card chunking-input-card">
@@ -503,7 +510,7 @@
         </div>
       </section>
 
-      <!-- Tab 5: Quantization Lab -->
+      <!-- Tab 6: Quantization Lab -->
       <section class="tab-pane" id="pane-quantization-lab">
         <div class="quant-layout">
           <div class="card">
@@ -547,7 +554,7 @@
         </div>
       </section>
 
-      <!-- Tab 6: Benchmarks & Evaluation -->
+      <!-- Tab 7: Benchmarks & Evaluation -->
       <section class="tab-pane" id="pane-benchmark-hub">
         <div class="bench-layout">
           <div class="card">
@@ -586,7 +593,7 @@
         </div>
       </section>
 
-      <!-- Tab 7: Ingestion Hub -->
+      <!-- Tab 8: Ingestion Hub -->
       <section class="tab-pane" id="pane-ingest-hub">
         <div class="ingest-layout">
           <div class="card">
@@ -595,7 +602,7 @@
             
             <form id="upload-form" class="upload-form">
               <div class="drop-zone" id="file-drop-zone">
-                <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="17 8 12 3 7 8"></polyline><line x1="12" y1="3" x2="12" y2="15"></line></svg>
                 <p class="drop-prompt">Drag & drop your PDF, Markdown, or Code file here or <span class="browse-link">browse</span></p>
                 <input type="file" id="file-input" style="display: none;" accept=".pdf,.md,.txt,.py,.json">
               </div>
