@@ -22,6 +22,10 @@ document.addEventListener("DOMContentLoaded", () => {
       title: "HNSW Skip-Graph Topology Inspector",
       desc: "Explore multi-layer hierarchical graph structure, entry points, and small-world connections.",
     },
+    "embedding-projector": {
+      title: "2D Semantic Embedding Space Projector",
+      desc: "Interactive Principal Component Analysis (PCA) projection of all vector embeddings with cluster inspection and query localization.",
+    },
     "chunking-lab": {
       title: "Chunking Strategy Comparator Lab",
       desc: "Evaluate Fixed-Size, Sentence-Boundary, and Semantic Distance Gradient chunking in real time.",
@@ -57,6 +61,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (targetTab === "hnsw-visualizer") {
         fetchAndRenderHNSWGraph();
+      } else if (targetTab === "embedding-projector") {
+        fetchAndRenderProjector();
       }
     });
   });
@@ -336,21 +342,147 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   // =========================================================================
-  // Tab 3: HNSW Graph Visualizer Canvas
+  // Tab 3: HNSW Graph Visualizer Canvas & Traversal Debugger
   // =========================================================================
+  let hnswGraphData = null;
+  let hnswTraceData = null;
+  let currentTraceStep = -1;
+  let traceTimer = null;
+  let traceSpeed = 500;
+
   async function fetchAndRenderHNSWGraph() {
     try {
       const res = await fetch(`/api/hnsw/graph?t=${Date.now()}`);
       const data = await res.json();
+      hnswGraphData = data;
       renderHNSWCanvas(data);
     } catch (e) {
       console.warn("HNSW Graph fetch error:", e);
     }
   }
 
-  document.getElementById("btn-refresh-hnsw").addEventListener("click", fetchAndRenderHNSWGraph);
+  document.getElementById("btn-refresh-hnsw").addEventListener("click", () => {
+    stopTracePlayback();
+    hnswTraceData = null;
+    currentTraceStep = -1;
+    document.getElementById("hnsw-playback-controls").style.display = "none";
+    document.getElementById("hnsw-telemetry-hud").style.display = "none";
+    fetchAndRenderHNSWGraph();
+  });
+
+  // Trace Query Traversal Form
+  document.getElementById("btn-trace-hnsw").addEventListener("click", executeHNSWTrace);
+  document.getElementById("hnsw-query-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      executeHNSWTrace();
+    }
+  });
+
+  async function executeHNSWTrace() {
+    const q = document.getElementById("hnsw-query-input").value.trim();
+    if (!q) return;
+
+    const btn = document.getElementById("btn-trace-hnsw");
+    btn.disabled = true;
+    btn.innerHTML = `<span>Tracing...</span>`;
+
+    try {
+      const res = await fetch("/api/hnsw/trace", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, k: 5 }),
+      });
+      const data = await res.json();
+      if (!data.steps || data.steps.length === 0) {
+        alert("No traversal steps recorded. Please seed the graph first.");
+        return;
+      }
+
+      hnswTraceData = data;
+      currentTraceStep = 0;
+      document.getElementById("hnsw-playback-controls").style.display = "flex";
+      document.getElementById("hnsw-telemetry-hud").style.display = "flex";
+
+      renderHNSWCanvas(hnswGraphData);
+      startTracePlayback();
+    } catch (err) {
+      console.error("Trace error:", err);
+      alert("Failed to trace query route: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg> <span>Trace Search Route</span>`;
+    }
+  }
+
+  function startTracePlayback() {
+    stopTracePlayback();
+    document.getElementById("btn-trace-playpause").textContent = "⏸ Pause";
+    traceTimer = setInterval(() => {
+      if (!hnswTraceData) return;
+      if (currentTraceStep < hnswTraceData.steps.length - 1) {
+        currentTraceStep++;
+        renderHNSWCanvas(hnswGraphData);
+      } else {
+        stopTracePlayback();
+      }
+    }, traceSpeed);
+  }
+
+  function stopTracePlayback() {
+    if (traceTimer) {
+      clearInterval(traceTimer);
+      traceTimer = null;
+    }
+    const playBtn = document.getElementById("btn-trace-playpause");
+    if (playBtn) playBtn.textContent = "▶ Play";
+  }
+
+  document.getElementById("btn-trace-playpause").addEventListener("click", () => {
+    if (traceTimer) {
+      stopTracePlayback();
+    } else {
+      if (hnswTraceData && currentTraceStep >= hnswTraceData.steps.length - 1) {
+        currentTraceStep = 0;
+      }
+      startTracePlayback();
+    }
+  });
+
+  document.getElementById("btn-trace-next").addEventListener("click", () => {
+    stopTracePlayback();
+    if (hnswTraceData && currentTraceStep < hnswTraceData.steps.length - 1) {
+      currentTraceStep++;
+      renderHNSWCanvas(hnswGraphData);
+    }
+  });
+
+  document.getElementById("btn-trace-prev").addEventListener("click", () => {
+    stopTracePlayback();
+    if (hnswTraceData && currentTraceStep > 0) {
+      currentTraceStep--;
+      renderHNSWCanvas(hnswGraphData);
+    }
+  });
+
+  document.getElementById("hnsw-trace-speed").addEventListener("change", (e) => {
+    traceSpeed = parseInt(e.target.value, 10);
+    if (traceTimer) {
+      startTracePlayback();
+    }
+  });
+
+  document.getElementById("btn-trace-clear").addEventListener("click", () => {
+    stopTracePlayback();
+    hnswTraceData = null;
+    currentTraceStep = -1;
+    document.getElementById("hnsw-playback-controls").style.display = "none";
+    document.getElementById("hnsw-telemetry-hud").style.display = "none";
+    renderHNSWCanvas(hnswGraphData);
+  });
 
   function renderHNSWCanvas(data) {
+    if (!data) return;
     const canvas = document.getElementById("hnsw-canvas");
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
@@ -458,7 +590,7 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fillText(layerLabel, 44, y - 8);
     }
 
-    // Draw Edges
+    // Draw Base Edges
     if (data.edges) {
       data.edges.forEach((edge) => {
         const p1 = nodePositions[edge.source];
@@ -471,18 +603,53 @@ document.addEventListener("DOMContentLoaded", () => {
             const midX = (p1.x + p2.x) / 2;
             const midY = (p1.y + p2.y) / 2 - (Math.abs(p1.x - p2.x) > 150 ? 15 : 0);
             ctx.quadraticCurveTo(midX, midY, p2.x, p2.y);
-            ctx.strokeStyle = edge.level > 0 ? "rgba(251, 191, 36, 0.55)" : "rgba(0, 245, 155, 0.28)";
-            ctx.lineWidth = edge.level > 0 ? 1.6 : 1.1;
+            ctx.strokeStyle = edge.level > 0 ? "rgba(251, 191, 36, 0.4)" : "rgba(0, 245, 155, 0.2)";
+            ctx.lineWidth = edge.level > 0 ? 1.4 : 1.0;
           } else {
             const cx = (p1.x + p2.x) / 2 + 15;
             const cy = (p1.y + p2.y) / 2;
             ctx.quadraticCurveTo(cx, cy, p2.x, p2.y);
-            ctx.strokeStyle = "rgba(244, 63, 94, 0.45)";
-            ctx.lineWidth = 1.4;
+            ctx.strokeStyle = "rgba(244, 63, 94, 0.35)";
+            ctx.lineWidth = 1.2;
           }
           ctx.stroke();
         }
       });
+    }
+
+    // Draw Traversed Laser Hops if Trace is Active
+    if (hnswTraceData && currentTraceStep >= 0) {
+      const steps = hnswTraceData.steps;
+      for (let s = 0; s <= currentTraceStep && s < steps.length; s++) {
+        const step = steps[s];
+        if (step.from_node && step.to_node) {
+          const fromPos = nodePositions[step.from_node];
+          const toPos = nodePositions[step.to_node];
+          if (fromPos && toPos) {
+            ctx.beginPath();
+            ctx.moveTo(fromPos.x, fromPos.y);
+            ctx.lineTo(toPos.x, toPos.y);
+
+            // Glowing neon laser line
+            ctx.strokeStyle = "#00f59b";
+            ctx.shadowColor = "#00f59b";
+            ctx.shadowBlur = 12;
+            ctx.lineWidth = s === currentTraceStep ? 3.5 : 2.2;
+            ctx.stroke();
+            ctx.shadowBlur = 0;
+          }
+        }
+      }
+
+      // Update Telemetry HUD
+      const activeStep = steps[currentTraceStep];
+      if (activeStep) {
+        document.getElementById("hud-layer").textContent = `Layer: ${activeStep.layer}`;
+        document.getElementById("hud-node").textContent = `Current Node: ${activeStep.to_node}`;
+        document.getElementById("hud-dist").textContent = `Dist: ${activeStep.distance.toFixed(3)}`;
+        document.getElementById("hud-desc").textContent = activeStep.description;
+        document.getElementById("hnsw-step-label").textContent = `Step ${currentTraceStep + 1} / ${steps.length}`;
+      }
     }
 
     // Draw Nodes
@@ -491,12 +658,22 @@ document.addEventListener("DOMContentLoaded", () => {
       if (!pos) return;
 
       const isEnterNode = node.id === data.enter_node;
-      const radius = isEnterNode ? 9 : (pos.level > 0 ? 7 : 5.5);
+      const isCurrentTraceTarget = (
+        hnswTraceData &&
+        currentTraceStep >= 0 &&
+        hnswTraceData.steps[currentTraceStep]?.to_node === node.id
+      );
+
+      const radius = isCurrentTraceTarget ? 11 : (isEnterNode ? 9 : (pos.level > 0 ? 7 : 5.5));
 
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, radius, 0, Math.PI * 2);
 
-      if (isEnterNode) {
+      if (isCurrentTraceTarget) {
+        ctx.fillStyle = "#00f59b";
+        ctx.shadowColor = "#00f59b";
+        ctx.shadowBlur = 20;
+      } else if (isEnterNode) {
         ctx.fillStyle = "#f43f5e";
         ctx.shadowColor = "#f43f5e";
         ctx.shadowBlur = 12;
@@ -513,12 +690,21 @@ document.addEventListener("DOMContentLoaded", () => {
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      ctx.strokeStyle = "#ffffff";
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = isCurrentTraceTarget ? "#08090b" : "#ffffff";
+      ctx.lineWidth = isCurrentTraceTarget ? 3 : 1.5;
       ctx.stroke();
 
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "10px 'Plus Jakarta Sans'";
+      // Outer animated ring for current target
+      if (isCurrentTraceTarget) {
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, radius + 6, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(0, 245, 155, 0.7)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = isCurrentTraceTarget ? "#00f59b" : "#94a3b8";
+      ctx.font = isCurrentTraceTarget ? "bold 11px 'Plus Jakarta Sans'" : "10px 'Plus Jakarta Sans'";
       ctx.textAlign = "center";
       const label = pos.title.length > 16 ? pos.title.substring(0, 14) + ".." : pos.title;
       ctx.fillText(label, pos.x, pos.y + radius + 12);
@@ -557,6 +743,443 @@ document.addEventListener("DOMContentLoaded", () => {
       });
     }
   }
+
+  // =========================================================================
+  // Tab 4: 2D Semantic Embedding Space Projector Logic
+  // =========================================================================
+  let projData = null;
+  let projQueryData = null;
+  let projPan = { x: 0, y: 0 };
+  let projZoom = 1.0;
+  let isDraggingProj = false;
+  let dragStartProj = { x: 0, y: 0 };
+  let hoveredPointProj = null;
+  let activeClusterFilterProj = null;
+  let projAnimFrame = null;
+  let queryPulsePhase = 0;
+
+  async function fetchAndRenderProjector() {
+    try {
+      const res = await fetch(`/api/visualization/embedding-space?t=${Date.now()}`);
+      const data = await res.json();
+      projData = data;
+
+      // Update Telemetry Pills
+      if (data.explained_variance) {
+        document.getElementById("proj-badge-variance").textContent =
+          `PCA Variance: PC1 ${data.explained_variance[0]}% | PC2 ${data.explained_variance[1]}%`;
+      }
+      document.getElementById("proj-badge-count").textContent = `Vectors: ${data.total_points || 0}`;
+
+      // Populate Legend Bar
+      const legendContainer = document.getElementById("proj-legend-list");
+      legendContainer.innerHTML = "";
+
+      const allPill = document.createElement("div");
+      allPill.className = `legend-pill ${activeClusterFilterProj === null ? "active" : ""}`;
+      allPill.innerHTML = `<span>All Clusters</span> <span class="legend-pill-count">${data.total_points || 0}</span>`;
+      allPill.addEventListener("click", () => {
+        activeClusterFilterProj = null;
+        document.querySelectorAll(".legend-pill").forEach((p) => p.classList.remove("active"));
+        allPill.classList.add("active");
+        renderProjectorCanvas();
+      });
+      legendContainer.appendChild(allPill);
+
+      (data.clusters || []).forEach((c) => {
+        const pill = document.createElement("div");
+        pill.className = `legend-pill ${activeClusterFilterProj === c.name ? "active" : ""}`;
+        pill.innerHTML = `
+          <span class="legend-dot-proj" style="background:${c.color}; color:${c.color};"></span>
+          <span>${c.name}</span>
+          <span class="legend-pill-count">${c.count}</span>
+        `;
+        pill.addEventListener("click", () => {
+          if (activeClusterFilterProj === c.name) {
+            activeClusterFilterProj = null;
+            document.querySelectorAll(".legend-pill").forEach((p) => p.classList.remove("active"));
+            allPill.classList.add("active");
+          } else {
+            activeClusterFilterProj = c.name;
+            document.querySelectorAll(".legend-pill").forEach((p) => p.classList.remove("active"));
+            pill.classList.add("active");
+          }
+          renderProjectorCanvas();
+        });
+        legendContainer.appendChild(pill);
+      });
+
+      renderProjectorCanvas();
+      startProjectorAnimation();
+    } catch (e) {
+      console.warn("Projector fetch error:", e);
+    }
+  }
+
+  function startProjectorAnimation() {
+    if (projAnimFrame) cancelAnimationFrame(projAnimFrame);
+    function loop() {
+      queryPulsePhase = (queryPulsePhase + 0.05) % (Math.PI * 2);
+      if (projQueryData) {
+        renderProjectorCanvas();
+      }
+      projAnimFrame = requestAnimationFrame(loop);
+    }
+    projAnimFrame = requestAnimationFrame(loop);
+  }
+
+  function renderProjectorCanvas() {
+    const canvas = document.getElementById("projector-canvas");
+    if (!canvas || !projData) return;
+    const ctx = canvas.getContext("2d");
+    const width = canvas.width;
+    const height = canvas.height;
+
+    ctx.clearRect(0, 0, width, height);
+
+    ctx.save();
+    // Center point with pan and zoom transforms
+    ctx.translate(width / 2 + projPan.x, height / 2 + projPan.y);
+    ctx.scale(projZoom, projZoom);
+
+    // 1. Draw Subtle Coordinate Grid
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.04)";
+    ctx.lineWidth = 1 / projZoom;
+    const gridSize = 60;
+    const ext = 800;
+    for (let x = -ext; x <= ext; x += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(x, -ext);
+      ctx.lineTo(x, ext);
+      ctx.stroke();
+    }
+    for (let y = -ext; y <= ext; y += gridSize) {
+      ctx.beginPath();
+      ctx.moveTo(-ext, y);
+      ctx.lineTo(ext, y);
+      ctx.stroke();
+    }
+
+    // 2. Draw Axes
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.08)";
+    ctx.lineWidth = 1.2 / projZoom;
+    ctx.beginPath();
+    ctx.moveTo(-ext, 0);
+    ctx.lineTo(ext, 0);
+    ctx.moveTo(0, -ext);
+    ctx.lineTo(0, ext);
+    ctx.stroke();
+
+    // 3. Draw Laser Rays from Query Point to Top-K Nearest Neighbors
+    if (projQueryData && projQueryData.top_k) {
+      const qx = projQueryData.query_2d.x;
+      const qy = projQueryData.query_2d.y;
+
+      const idToPoint = {};
+      projData.points.forEach((p) => { idToPoint[p.id] = p; });
+
+      projQueryData.top_k.forEach((res, rank) => {
+        const targetPt = idToPoint[res.id];
+        if (targetPt) {
+          ctx.beginPath();
+          ctx.moveTo(qx, qy);
+          ctx.lineTo(targetPt.x, targetPt.y);
+
+          ctx.strokeStyle = "rgba(0, 245, 155, 0.6)";
+          ctx.shadowColor = "#00f59b";
+          ctx.shadowBlur = 8;
+          ctx.lineWidth = Math.max(1.2, (2.4 - rank * 0.3)) / projZoom;
+          ctx.setLineDash([4 / projZoom, 4 / projZoom]);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.shadowBlur = 0;
+
+          // Rank label at midpoint
+          const midX = (qx + targetPt.x) / 2;
+          const midY = (qy + targetPt.y) / 2;
+          ctx.fillStyle = "rgba(10, 14, 20, 0.85)";
+          ctx.fillRect(midX - 14 / projZoom, midY - 8 / projZoom, 28 / projZoom, 16 / projZoom);
+          ctx.fillStyle = "#00f59b";
+          ctx.font = `bold ${10 / projZoom}px 'JetBrains Mono'`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(`#${rank + 1}`, midX, midY);
+        }
+      });
+    }
+
+    // 4. Draw Vector Points
+    projData.points.forEach((pt) => {
+      const isFilteredOut = activeClusterFilterProj !== null && pt.cluster !== activeClusterFilterProj;
+      const isHovered = hoveredPointProj && hoveredPointProj.id === pt.id;
+      const isTopKMatch = projQueryData && projQueryData.top_k?.some((k) => k.id === pt.id);
+
+      const baseRadius = isHovered ? 8 : (isTopKMatch ? 7 : 5);
+      const radius = baseRadius / projZoom;
+
+      ctx.beginPath();
+      ctx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
+
+      if (isFilteredOut) {
+        ctx.fillStyle = "rgba(75, 85, 99, 0.25)";
+        ctx.fill();
+        return;
+      }
+
+      ctx.fillStyle = pt.color;
+      if (isHovered || isTopKMatch) {
+        ctx.shadowColor = pt.color;
+        ctx.shadowBlur = 14;
+      } else {
+        ctx.shadowColor = pt.color;
+        ctx.shadowBlur = 5;
+      }
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      ctx.strokeStyle = isTopKMatch ? "#ffffff" : "rgba(255, 255, 255, 0.6)";
+      ctx.lineWidth = (isTopKMatch ? 2 : 1) / projZoom;
+      ctx.stroke();
+
+      // Top-K Match Halo
+      if (isTopKMatch) {
+        ctx.beginPath();
+        ctx.arc(pt.x, pt.y, (radius + 4 / projZoom), 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(0, 245, 155, 0.8)";
+        ctx.lineWidth = 1.5 / projZoom;
+        ctx.stroke();
+      }
+    });
+
+    // 5. Draw Animated Query Beacon Star
+    if (projQueryData) {
+      const qx = projQueryData.query_2d.x;
+      const qy = projQueryData.query_2d.y;
+
+      // Pulsing outer ripple rings
+      const pulseSize = (14 + Math.sin(queryPulsePhase) * 6) / projZoom;
+      ctx.beginPath();
+      ctx.arc(qx, qy, pulseSize, 0, Math.PI * 2);
+      ctx.strokeStyle = `rgba(0, 245, 155, ${0.4 + Math.cos(queryPulsePhase) * 0.3})`;
+      ctx.lineWidth = 2 / projZoom;
+      ctx.stroke();
+
+      // Inner pulsating core
+      ctx.beginPath();
+      ctx.arc(qx, qy, 8 / projZoom, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.shadowColor = "#00f59b";
+      ctx.shadowBlur = 18;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+
+      // Query Beacon Tag
+      ctx.fillStyle = "#00f59b";
+      ctx.font = `bold ${11 / projZoom}px 'Plus Jakarta Sans'`;
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(`Query: "${projQueryData.query.substring(0, 22)}..."`, qx, qy + (pulseSize + 4 / projZoom));
+    }
+
+    ctx.restore();
+  }
+
+  // Project Query Handler
+  document.getElementById("btn-project-query").addEventListener("click", executeProjectQuery);
+  document.getElementById("proj-query-input").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      executeProjectQuery();
+    }
+  });
+
+  async function executeProjectQuery() {
+    const q = document.getElementById("proj-query-input").value.trim();
+    if (!q) return;
+
+    const btn = document.getElementById("btn-project-query");
+    btn.disabled = true;
+    btn.innerHTML = `<span>Projecting...</span>`;
+
+    try {
+      const res = await fetch("/api/visualization/project-query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: q, k: 5 }),
+      });
+      const data = await res.json();
+      projQueryData = data;
+      document.getElementById("btn-clear-proj-query").style.display = "inline-flex";
+
+      // Smoothly pan towards query coordinates
+      projPan.x = -data.query_2d.x * projZoom;
+      projPan.y = -data.query_2d.y * projZoom;
+      renderProjectorCanvas();
+    } catch (err) {
+      console.error("Query projection error:", err);
+      alert("Failed to project query: " + err.message);
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line></svg> <span>Project & Find Top-K</span>`;
+    }
+  }
+
+  // Clear query button
+  document.getElementById("btn-clear-proj-query").addEventListener("click", () => {
+    projQueryData = null;
+    document.getElementById("btn-clear-proj-query").style.display = "none";
+    document.getElementById("proj-query-input").value = "";
+    renderProjectorCanvas();
+  });
+
+  // Preset sample chips
+  document.querySelectorAll(".sample-chip-sm").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      document.getElementById("proj-query-input").value = chip.getAttribute("data-q");
+      executeProjectQuery();
+    });
+  });
+
+  // Reset zoom button
+  document.getElementById("btn-reset-proj-zoom").addEventListener("click", () => {
+    projPan = { x: 0, y: 0 };
+    projZoom = 1.0;
+    renderProjectorCanvas();
+  });
+
+  // Recalculate PCA button
+  document.getElementById("btn-refresh-projector").addEventListener("click", fetchAndRenderProjector);
+
+  // Close details panel button
+  document.getElementById("btn-close-proj-detail").addEventListener("click", () => {
+    document.getElementById("proj-details-panel").style.display = "none";
+  });
+
+  // Canvas Mouse Pan, Zoom, and Hover Listeners
+  const projCanvas = document.getElementById("projector-canvas");
+  const projTooltip = document.getElementById("proj-hover-tooltip");
+
+  if (projCanvas) {
+    // Wheel to Zoom
+    projCanvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const zoomFactor = e.deltaY < 0 ? 1.15 : 0.87;
+      const newZoom = Math.min(Math.max(projZoom * zoomFactor, 0.4), 6.0);
+
+      const rect = projCanvas.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left - projCanvas.width / 2;
+      const mouseY = e.clientY - rect.top - projCanvas.height / 2;
+
+      projPan.x -= mouseX * (newZoom / projZoom - 1);
+      projPan.y -= mouseY * (newZoom / projZoom - 1);
+      projZoom = newZoom;
+
+      renderProjectorCanvas();
+    }, { passive: false });
+
+    // Drag to Pan
+    projCanvas.addEventListener("mousedown", (e) => {
+      if (e.button === 0) {
+        isDraggingProj = true;
+        dragStartProj = { x: e.clientX - projPan.x, y: e.clientY - projPan.y };
+      }
+    });
+
+    window.addEventListener("mouseup", () => {
+      isDraggingProj = false;
+    });
+
+    projCanvas.addEventListener("mousemove", (e) => {
+      const rect = projCanvas.getBoundingClientRect();
+      if (isDraggingProj) {
+        projPan.x = e.clientX - dragStartProj.x;
+        projPan.y = e.clientY - dragStartProj.y;
+        renderProjectorCanvas();
+        projTooltip.style.display = "none";
+        return;
+      }
+
+      if (!projData || !projData.points) return;
+
+      // Transform mouse to canvas coordinates
+      const scaleX = projCanvas.width / rect.width;
+      const scaleY = projCanvas.height / rect.height;
+      const canvasMouseX = (e.clientX - rect.left) * scaleX;
+      const canvasMouseY = (e.clientY - rect.top) * scaleY;
+
+      // Transform into data eigenspace
+      const dataX = (canvasMouseX - projCanvas.width / 2 - projPan.x) / projZoom;
+      const dataY = (canvasMouseY - projCanvas.height / 2 - projPan.y) / projZoom;
+
+      let closest = null;
+      let minDistance = 14 / projZoom;
+
+      projData.points.forEach((pt) => {
+        if (activeClusterFilterProj !== null && pt.cluster !== activeClusterFilterProj) return;
+        const dx = pt.x - dataX;
+        const dy = pt.y - dataY;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d < minDistance) {
+          minDistance = d;
+          closest = pt;
+        }
+      });
+
+      if (closest) {
+        hoveredPointProj = closest;
+        projCanvas.style.cursor = "pointer";
+
+        // Position floating tooltip
+        projTooltip.style.display = "block";
+        projTooltip.style.left = `${e.clientX - rect.left}px`;
+        projTooltip.style.top = `${e.clientY - rect.top}px`;
+
+        document.getElementById("tooltip-cluster").textContent = closest.cluster;
+        document.getElementById("tooltip-cluster").style.color = closest.color;
+        document.getElementById("tooltip-id").textContent = closest.id;
+        document.getElementById("tooltip-title").textContent = closest.title;
+        document.getElementById("tooltip-snippet").textContent = closest.snippet;
+
+        renderProjectorCanvas();
+      } else {
+        if (hoveredPointProj) {
+          hoveredPointProj = null;
+          projCanvas.style.cursor = "grab";
+          projTooltip.style.display = "none";
+          renderProjectorCanvas();
+        }
+      }
+    });
+
+    // Click to Open Details Panel
+    projCanvas.addEventListener("click", () => {
+      if (hoveredPointProj) {
+        const pt = hoveredPointProj;
+        const panel = document.getElementById("proj-details-panel");
+        panel.style.display = "block";
+
+        document.getElementById("proj-detail-title").textContent = pt.title;
+        document.getElementById("proj-detail-badge").textContent = pt.cluster;
+        document.getElementById("proj-detail-badge").style.borderColor = pt.color;
+        document.getElementById("proj-detail-badge").style.color = pt.color;
+
+        const rawText = pt.meta?.text || pt.snippet || "No text available.";
+        document.getElementById("proj-detail-text").textContent = rawText;
+
+        const metaEl = document.getElementById("proj-detail-meta");
+        metaEl.innerHTML = `
+          <span><strong>ID:</strong> ${pt.id}</span>
+          <span><strong>Source:</strong> ${pt.meta?.source || pt.cluster}</span>
+          <span><strong>2D Coords:</strong> (${pt.x}, ${pt.y})</span>
+          ${pt.meta?.year ? `<span><strong>Year:</strong> ${pt.meta.year}</span>` : ""}
+          ${pt.meta?.section ? `<span><strong>Section:</strong> ${pt.meta.section}</span>` : ""}
+        `;
+
+        panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      }
+    });
+  }
+
 
   // =========================================================================
   // Tab 4: Chunking Comparator

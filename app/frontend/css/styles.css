@@ -1373,3 +1373,347 @@ body {
   align-items: center;
   margin-top: 16px;
 }
+
+/* ==========================================================================
+   HNSW Traversal Debugger & Telemetry HUD
+   ========================================================================== */
+.hnsw-traversal-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: rgba(14, 18, 24, 0.75);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  margin-bottom: 12px;
+}
+
+.traversal-input-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 280px;
+}
+
+.custom-input-sm {
+  padding: 7px 12px;
+  font-size: 0.82rem;
+  height: 36px;
+}
+
+.traversal-playback-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.step-indicator {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--brand-primary);
+  background: rgba(0, 245, 155, 0.1);
+  border: 1px solid rgba(0, 245, 155, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.traversal-telemetry-hud {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  background: rgba(8, 9, 11, 0.85);
+  border: 1px solid rgba(0, 245, 155, 0.3);
+  box-shadow: 0 0 15px rgba(0, 245, 155, 0.08);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  margin-bottom: 12px;
+  animation: fadeIn 0.3s ease;
+}
+
+.hud-item {
+  color: var(--text-muted);
+}
+
+.hud-desc {
+  color: var(--brand-primary);
+  font-weight: 600;
+  flex: 1;
+}
+
+/* ==========================================================================
+   2D Embedding Space Projector Styles
+   ========================================================================== */
+.projector-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.projector-toolbar-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+.projector-query-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.input-wrapper-proj {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.input-wrapper-proj .custom-input {
+  flex: 1;
+}
+
+.proj-sample-chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sample-label-sm {
+  font-size: 0.74rem;
+  color: var(--text-dim);
+  font-weight: 600;
+}
+
+.sample-chip-sm {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-default);
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.sample-chip-sm:hover {
+  background: rgba(0, 245, 155, 0.1);
+  color: var(--brand-primary);
+  border-color: rgba(0, 245, 155, 0.4);
+}
+
+.proj-controls-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-default);
+}
+
+.proj-stats-pills {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.proj-action-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.projector-viewport-container {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 50%, rgba(14, 22, 33, 0.8) 0%, rgba(8, 9, 11, 0.98) 100%);
+  border: 1px solid var(--border-default);
+}
+
+.canvas-wrapper {
+  position: relative;
+  width: 100%;
+  height: 520px;
+  cursor: grab;
+}
+
+.canvas-wrapper:active {
+  cursor: grabbing;
+}
+
+.canvas-wrapper canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas-overlay-hints {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  pointer-events: none;
+  background: rgba(8, 9, 11, 0.6);
+  padding: 4px 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/* Glassmorphism Hover Tooltip */
+.proj-tooltip {
+  position: absolute;
+  width: 260px;
+  background: rgba(14, 18, 25, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 245, 155, 0.4);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 16px rgba(0, 245, 155, 0.2);
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  pointer-events: none;
+  z-index: 100;
+  transform: translate(-50%, -100%);
+  margin-top: -14px;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+
+.tooltip-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.tooltip-cluster-badge {
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: rgba(0, 245, 155, 0.15);
+  color: var(--brand-primary);
+  border: 1px solid rgba(0, 245, 155, 0.3);
+}
+
+.tooltip-id {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.tooltip-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 5px;
+  line-height: 1.3;
+}
+
+.tooltip-snippet {
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+  margin-bottom: 8px;
+}
+
+.tooltip-footer {
+  font-size: 0.68rem;
+  color: var(--brand-primary);
+  font-weight: 600;
+  text-align: right;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding-top: 4px;
+}
+
+/* Cluster Legend Bar */
+.projector-legend-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: rgba(10, 13, 18, 0.9);
+  border-top: 1px solid var(--border-default);
+}
+
+.legend-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  padding: 3px 10px;
+  font-size: 0.74rem;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.legend-pill:hover, .legend-pill.active {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.3);
+  color: #fff;
+}
+
+.legend-dot-proj {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.legend-pill-count {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+/* Details Panel */
+.proj-details-card {
+  border-top: 2px solid var(--brand-primary);
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.proj-detail-body {
+  padding: 16px 20px;
+}
+
+.proj-detail-text {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  color: var(--text-main);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  margin-bottom: 12px;
+}
+
+.proj-detail-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  color: var(--text-dim);
+}
+

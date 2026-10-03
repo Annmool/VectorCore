@@ -45,6 +45,11 @@
           <span>HNSW Graph</span>
         </button>
 
+        <button class="nav-item" data-tab="embedding-projector" id="tab-projector">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3m0 14v3M2 12h3m14 0h3m-3.5-6.5l-2.1 2.1m-8.8 8.8l-2.1 2.1m0-13l2.1 2.1m8.8 8.8l2.1 2.1"></path></svg>
+          <span>2D Embedding Space</span>
+        </button>
+
         <button class="nav-item" data-tab="chunking-lab" id="tab-chunking">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
           <span>Chunking Lab</span>
@@ -317,14 +322,137 @@
               </button>
             </div>
 
+            <!-- Interactive Query Traversal Debugger Bar -->
+            <div class="hnsw-traversal-bar">
+              <div class="traversal-input-group">
+                <input type="text" id="hnsw-query-input" placeholder="Type query to trace beam search traversal (e.g. 'FlashAttention', 'BM25 ranking')..." class="custom-input custom-input-sm">
+                <button class="btn btn-primary btn-sm" id="btn-trace-hnsw">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                  <span>Trace Search Route</span>
+                </button>
+              </div>
+
+              <div class="traversal-playback-group" id="hnsw-playback-controls" style="display:none;">
+                <button class="btn btn-secondary btn-sm" id="btn-trace-prev" title="Previous Hop">⏮</button>
+                <button class="btn btn-secondary btn-sm" id="btn-trace-playpause">▶ Play</button>
+                <button class="btn btn-secondary btn-sm" id="btn-trace-next" title="Next Hop">⏭</button>
+                <div class="step-indicator" id="hnsw-step-label">Step 0 / 0</div>
+                <div class="speed-control">
+                  <label>Speed:</label>
+                  <select id="hnsw-trace-speed" class="custom-select-sm">
+                    <option value="1000">0.5x</option>
+                    <option value="500" selected>1.0x</option>
+                    <option value="250">2.0x</option>
+                  </select>
+                </div>
+                <button class="btn btn-secondary btn-sm" id="btn-trace-clear">Clear</button>
+              </div>
+            </div>
+
+            <!-- Real-time Traversal Telemetry HUD Banner -->
+            <div class="traversal-telemetry-hud" id="hnsw-telemetry-hud" style="display:none;">
+              <span class="hud-item" id="hud-layer">Layer: -</span>
+              <span class="hud-item" id="hud-node">Current: -</span>
+              <span class="hud-item" id="hud-dist">Dist: -</span>
+              <span class="hud-item hud-desc" id="hud-desc">Ready to trace</span>
+            </div>
+
             <div class="graph-legend">
               <div class="legend-item"><span class="legend-dot dot-ep"></span> Global Entry Point (Layer max)</div>
               <div class="legend-item"><span class="legend-dot dot-l2"></span> Higher Layers (Express Skip-edges)</div>
               <div class="legend-item"><span class="legend-dot dot-l0"></span> Base Layer 0 (Dense Graph)</div>
+              <div class="legend-item"><span class="legend-dot dot-active-hop" style="background:#00f59b; box-shadow:0 0 8px #00f59b;"></span> Active Traversal Beam</div>
               <span style="color: var(--text-dim); margin-left: auto; font-size: 0.72rem;">Hover nodes to inspect metadata</span>
             </div>
 
             <canvas id="hnsw-canvas" width="1100" height="480"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 4: 2D Embedding Space Projector -->
+      <section class="tab-pane" id="pane-embedding-projector">
+        <div class="projector-layout">
+          <div class="card projector-toolbar-card">
+            <div class="projector-query-bar">
+              <div class="input-wrapper-proj">
+                <input type="text" id="proj-query-input" placeholder="Project search query into 2D semantic eigenspace (e.g. 'FlashAttention memory', 'Voronoi clustering')..." class="custom-input">
+                <button class="btn btn-primary" id="btn-project-query">
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"></circle><line x1="12" y1="2" x2="12" y2="6"></line><line x1="12" y1="18" x2="12" y2="22"></line><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"></line><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"></line></svg>
+                  <span>Project & Find Top-K</span>
+                </button>
+              </div>
+
+              <div class="proj-sample-chips">
+                <span class="sample-label-sm">Presets:</span>
+                <button class="sample-chip-sm" data-q="FlashAttention IO-aware memory access">FlashAttention</button>
+                <button class="sample-chip-sm" data-q="Product Quantization Asymmetric Distance">Product Quantization</button>
+                <button class="sample-chip-sm" data-q="HNSW skip-graph logarithmic search">HNSW Skip-Graph</button>
+                <button class="sample-chip-sm" data-q="BM25 term frequency saturation">BM25 Formula</button>
+              </div>
+            </div>
+
+            <div class="proj-controls-row">
+              <div class="proj-stats-pills" id="proj-stats-banner">
+                <span class="badge" id="proj-badge-variance">PCA Variance: PC1 --% | PC2 --%</span>
+                <span class="badge badge-engine" id="proj-badge-count">Vectors: --</span>
+              </div>
+
+              <div class="proj-action-buttons">
+                <button class="btn btn-secondary btn-sm" id="btn-refresh-projector" title="Recalculate PCA Projection">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                  Recalculate PCA
+                </button>
+                <button class="btn btn-secondary btn-sm" id="btn-reset-proj-zoom" title="Reset Pan & Zoom">
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                  Reset Zoom
+                </button>
+                <button class="btn btn-secondary btn-sm" id="btn-clear-proj-query" title="Clear Query Point" style="display:none;">
+                  Clear Query
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div class="projector-viewport-container card">
+            <div class="canvas-wrapper" id="projector-canvas-wrapper">
+              <canvas id="projector-canvas" width="1100" height="520"></canvas>
+              
+              <div class="canvas-overlay-hints">
+                <span>Drag to pan &bull; Scroll to zoom &bull; Click node to inspect details</span>
+              </div>
+
+              <!-- Floating Interactive Tooltip -->
+              <div class="proj-tooltip" id="proj-hover-tooltip" style="display: none;">
+                <div class="tooltip-header">
+                  <span class="tooltip-cluster-badge" id="tooltip-cluster">Cluster</span>
+                  <span class="tooltip-id" id="tooltip-id">#id</span>
+                </div>
+                <h5 class="tooltip-title" id="tooltip-title">Paper Title</h5>
+                <p class="tooltip-snippet" id="tooltip-snippet">Snippet...</p>
+                <div class="tooltip-footer" id="tooltip-footer">Click to view full chunk</div>
+              </div>
+            </div>
+
+            <!-- Cluster Legend Bar -->
+            <div class="projector-legend-bar" id="proj-legend-list">
+              <!-- Dynamically populated cluster pills -->
+            </div>
+          </div>
+
+          <!-- Bottom Drawer for Clicked Node Details -->
+          <div class="card proj-details-card" id="proj-details-panel" style="display:none;">
+            <div class="card-header">
+              <div class="header-with-badge">
+                <h3 class="card-title" id="proj-detail-title">Selected Vector Node</h3>
+                <span class="badge" id="proj-detail-badge">Cluster</span>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-close-proj-detail">&times; Close</button>
+            </div>
+            <div class="proj-detail-body">
+              <p class="proj-detail-text" id="proj-detail-text"></p>
+              <div class="proj-detail-meta" id="proj-detail-meta"></div>
+            </div>
           </div>
         </div>
       </section>

@@ -604,6 +604,128 @@ class HNSWIndex:
 
             return results
 
+    def search_with_trace(
+        self,
+        query: np.ndarray,
+        k: int = 5,
+        ef_search: Optional[int] = None,
+        filter_fn: Optional[Callable[[Dict[str, Any]], bool]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Search for top-k approximate nearest neighbors while capturing every hop
+        and traversal step across the hierarchy for live animated visualization.
+        """
+        with self._lock:
+            if self.enter_node is None or len(self.ids) == 0:
+                return {"steps": [], "results": [], "total_hops": 0}
+
+            active_indices = [i for i, deleted in enumerate(self.is_deleted) if not deleted]
+            active_count = len(active_indices)
+            if active_count == 0:
+                return {"steps": [], "results": [], "total_hops": 0}
+
+            query_raw = np.asarray(query, dtype=np.float32).flatten()
+            query_norm = self._normalize_vec(query_raw)
+
+            steps = []
+            curr_obj = self.enter_node
+            curr_dist = float(self._dists_to_nodes(query_norm, [curr_obj])[0])
+
+            steps.append({
+                "step": len(steps),
+                "layer": self.max_level,
+                "type": "entry",
+                "from_node": None,
+                "to_node": self.ids[curr_obj],
+                "to_idx": curr_obj,
+                "distance": round(curr_dist, 4),
+                "title": self.metadata[curr_obj].get("title") or self.metadata[curr_obj].get("source") or self.ids[curr_obj],
+                "description": f"Entered graph at top skip layer {self.max_level} at entry point '{self.ids[curr_obj]}'",
+            })
+
+            # 1. Greedy top-down traversal from max_level down to 1
+            for lev in range(self.max_level, 0, -1):
+                visited: Set[int] = {curr_obj}
+                while True:
+                    unvisited = [n for n in self.layers[lev].get(curr_obj, set()) if n not in visited]
+                    if not unvisited:
+                        break
+                    visited.update(unvisited)
+                    dists = self._dists_to_nodes(query_norm, unvisited)
+                    j = int(np.argmin(dists))
+                    if dists[j] < curr_dist:
+                        prev_obj = curr_obj
+                        curr_dist = float(dists[j])
+                        curr_obj = unvisited[j]
+                        steps.append({
+                            "step": len(steps),
+                            "layer": lev,
+                            "type": "hop",
+                            "from_node": self.ids[prev_obj],
+                            "to_node": self.ids[curr_obj],
+                            "to_idx": curr_obj,
+                            "distance": round(curr_dist, 4),
+                            "title": self.metadata[curr_obj].get("title") or self.metadata[curr_obj].get("source") or self.ids[curr_obj],
+                            "description": f"Layer {lev} skip-hop: found closer neighbor '{self.ids[curr_obj]}' (dist={curr_dist:.3f})",
+                        })
+                    else:
+                        break
+
+                # Descend to next lower layer
+                steps.append({
+                    "step": len(steps),
+                    "layer": lev - 1,
+                    "type": "descend",
+                    "from_node": self.ids[curr_obj],
+                    "to_node": self.ids[curr_obj],
+                    "to_idx": curr_obj,
+                    "distance": round(curr_dist, 4),
+                    "title": self.metadata[curr_obj].get("title") or self.metadata[curr_obj].get("source") or self.ids[curr_obj],
+                    "description": f"Reached local minimum on Layer {lev}. Descending to Layer {lev - 1}",
+                })
+
+            # 2. Bottom layer 0: beam search with candidate recording
+            accept_pred = (
+                lambda idx: (not self.is_deleted[idx]) and (filter_fn is None or filter_fn(self.metadata[idx]))
+            )
+            curr_ef = max(ef_search or self.ef_search, k)
+            candidates = self._search_layer(query_norm, [curr_obj], ef=curr_ef, level=0, accept=accept_pred)
+
+            for dist_val, node_idx in candidates[:min(len(candidates), k * 2)]:
+                if node_idx != curr_obj:
+                    steps.append({
+                        "step": len(steps),
+                        "layer": 0,
+                        "type": "beam_candidate",
+                        "from_node": self.ids[curr_obj],
+                        "to_node": self.ids[node_idx],
+                        "to_idx": node_idx,
+                        "distance": round(dist_val, 4),
+                        "title": self.metadata[node_idx].get("title") or self.metadata[node_idx].get("source") or self.ids[node_idx],
+                        "description": f"Layer 0 beam candidate: evaluated '{self.ids[node_idx]}' (dist={dist_val:.3f})",
+                    })
+
+            # Format top-k results
+            results = []
+            for dist, node_idx in candidates[:k]:
+                score = float(distance_to_score(dist, metric=self.metric))
+                results.append({
+                    "id": self.ids[node_idx],
+                    "score": score,
+                    "distance": dist,
+                    "metadata": self.metadata[node_idx],
+                    "layer_level": self.node_levels.get(node_idx, 0),
+                    "index_type": "hnsw",
+                })
+
+            return {
+                "steps": steps,
+                "results": results,
+                "total_hops": len(steps),
+                "enter_node": self.ids[self.enter_node] if self.enter_node is not None else None,
+            }
+
+
     def get_graph_topology(self, max_nodes: int = 50) -> Dict[str, Any]:
         """
         Export graph topology for 2D/3D visual inspection in the dashboard.

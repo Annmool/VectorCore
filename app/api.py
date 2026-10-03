@@ -32,6 +32,7 @@ from vectordb.rag.generator import RAGGenerator
 from vectordb.evaluation.metrics import evaluate_retrieval_system
 from vectordb.evaluation.dataset import PAPERS_CORPUS, EVALUATION_QA_PAIRS
 from vectordb.evaluation.benchmark import VectorIndexBenchmark
+from vectordb.visualization.projector import EmbeddingProjector
 
 
 app = FastAPI(
@@ -68,6 +69,7 @@ class SystemState:
         self.reranker = CrossEncoderReranker()
         self.cache = LRUQueryCache(capacity=500)
         self.rag_generator = RAGGenerator()
+        self.projector = EmbeddingProjector()
         self.documents_metadata: List[Dict[str, Any]] = []
 
 state = SystemState()
@@ -131,6 +133,17 @@ class QuantizationRequest(BaseModel):
 
 class SwitchIndexRequest(BaseModel):
     index_type: Literal["flat", "ivf", "hnsw"]
+
+
+class ProjectQueryRequest(BaseModel):
+    query: str
+    k: int = 5
+
+
+class HNSWTraceRequest(BaseModel):
+    query: str
+    k: int = 5
+    ef_search: Optional[int] = 32
 
 
 def seed_knowledge_base(force: bool = False):
@@ -567,6 +580,53 @@ def clear_cache():
     """Clear query cache."""
     state.cache.clear()
     return {"status": "cleared"}
+
+
+@app.get("/api/visualization/embedding-space")
+def get_embedding_space():
+    """Compute and return 2D PCA projection of all indexed vector embeddings."""
+    idx = state.collection.index
+    vecs = idx.vectors
+    ids = idx.ids
+    metas = idx.metadata
+    is_del = idx.is_deleted
+
+    # Filter out soft-deleted items
+    active_mask = [not d for d in is_del] if len(is_del) == len(ids) else [True] * len(ids)
+    active_vecs = vecs[active_mask] if len(vecs) > 0 and len(active_mask) == len(vecs) else vecs
+    active_ids = [i for i, m in zip(ids, active_mask) if m]
+    active_metas = [meta for meta, m in zip(metas, active_mask) if m]
+
+    projection = state.projector.fit_transform(active_vecs, active_ids, active_metas)
+    return projection
+
+
+@app.post("/api/visualization/project-query")
+def project_query_endpoint(req: ProjectQueryRequest):
+    """Project a search query vector onto the established 2D embedding space."""
+    q_vec = state.embedder.embed_query(req.query)
+    qx, qy = state.projector.project_query(q_vec)
+    # Also find top-k nearest neighbors
+    results = state.collection.query(q_vec, k=req.k)
+    return {
+        "query": req.query,
+        "query_2d": {"x": qx, "y": qy},
+        "top_k": results,
+    }
+
+
+@app.post("/api/hnsw/trace")
+def trace_hnsw_search(req: HNSWTraceRequest):
+    """Execute search while capturing step-by-step hierarchical traversal path."""
+    q_vec = state.embedder.embed_query(req.query)
+    trace_data = state.collection.query_with_trace(q_vec, k=req.k, ef_search=req.ef_search)
+    return {
+        "query": req.query,
+        "steps": trace_data.get("steps", []),
+        "results": trace_data.get("results", []),
+        "total_hops": trace_data.get("total_hops", 0),
+        "enter_node": trace_data.get("enter_node"),
+    }
 
 
 # Mount static frontend

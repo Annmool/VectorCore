@@ -197,6 +197,22 @@ class Collection:
                 return self.index.search(vector, k=k, ef_search=ef_search, filter_fn=filter_fn)
             return []
 
+    def query_with_trace(
+        self,
+        vector: np.ndarray,
+        k: int = 5,
+        ef_search: Optional[int] = None,
+        filter: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Query HNSW index with full hop-by-hop traversal trace."""
+        with self._lock:
+            filter_fn = compile_metadata_filter(filter)
+            if hasattr(self.index, "search_with_trace"):
+                return self.index.search_with_trace(vector, k=k, ef_search=ef_search, filter_fn=filter_fn)
+            results = self.query(vector, k=k, filter=filter)
+            return {"steps": [], "results": results, "total_hops": 0}
+
+
     def quantize_scalar(self) -> Dict[str, Any]:
         """Apply Int8 Scalar Quantization and calculate compression & reconstruction error."""
         with self._lock:

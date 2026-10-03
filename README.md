@@ -10,7 +10,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-00f59b?style=flat-square&logo=fastapi&logoColor=08090b)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-00f59b?style=flat-square&logo=docker&logoColor=08090b)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-fbbf24?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-20%2F20%20Passing-00f59b?style=flat-square)](tests/)
+[![Tests](https://img.shields.io/badge/Tests-40%2F40%20Passing-00f59b?style=flat-square)](tests/)
 
 🌐 **Live Console:** [https://vectorcore-tz2v.onrender.com](https://vectorcore-tz2v.onrender.com) &nbsp;|&nbsp; 📖 **API Docs:** [https://vectorcore-tz2v.onrender.com/docs](https://vectorcore-tz2v.onrender.com/docs)
 
@@ -132,7 +132,8 @@ VectorCore is an end-to-end vector search and retrieval-augmented generation eng
 
 The project includes an interactive web console served directly by FastAPI without complex node builds:
 - **Obsidian Matrix Palette**: Volcanic titanium black (`#08090b`), bioluminescent mint (`#00f59b`), and champagne gold (`#fbbf24`).
-- **Interactive 2.5D HNSW Visualizer**: Real-time HTML5 Canvas rendering of the skip-graph layers, entry point routing, and cluster connectivity.
+- **Interactive 2.5D HNSW Visualizer & Traversal Debugger**: Real-time HTML5 Canvas rendering of the skip-graph layers with step-by-step query traversal playback, skip-edge laser tracers, speed controls (0.5x–2.0x), and live telemetry HUD.
+- **2D Semantic Embedding Space Projector**: Real-time Principal Component Analysis (PCA via SVD in pure NumPy) projecting 384-dimensional embeddings into an interactive coordinate plane with pan, zoom, hover inspections, and query beacon localization with distance rays to top-K nearest neighbors.
 - **Multi-Strategy Search Studio**: Live 4-column comparison of Dense Vector vs. Sparse BM25 vs. Hybrid RRF vs. Cross-Encoder Reranked outputs.
 - **Chunking Lab & Quantization Comparator**: Live side-by-side experimentation.
 
