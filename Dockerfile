@@ -1,5 +1,5 @@
 # VectorCore Mini Vector Database & RAG Console
-# Production slim Docker image optimized for low-memory environments (<= 512MB RAM)
+# Single-stage slim Docker image for local demos and learning deployments
 
 FROM python:3.11-slim
 

@@ -1,6 +1,6 @@
 """
 Storage and Persistence engine for Mini Vector Database.
-Includes binary vector persistence, JSONL metadata store, and Write-Ahead Log (WAL).
+Includes binary vector snapshots, JSONL metadata, and an operation journal.
 """
 
 import os
@@ -11,7 +11,8 @@ from typing import Dict, Any, List, Optional, Tuple
 
 class StorageEngine:
     """
-    Manages vector data serialization, metadata persistence, and WAL journaling.
+    Manages vector data snapshots, metadata persistence, and an append-only operation journal.
+    The journal is diagnostic only: it is not replayed during recovery.
     """
 
     def __init__(self, base_dir: str = "./data/collections"):
@@ -98,7 +99,7 @@ class StorageEngine:
         return config, ids, vectors, metadatas, deleted_mask
 
     def append_wal(self, name: str, op: str, data: Dict[str, Any]) -> None:
-        """Write operation to Write-Ahead Log (WAL) for durability."""
+        """Append an operation record for diagnostics (not a recoverable WAL)."""
         c_dir = self._get_collection_dir(name)
         wal_path = os.path.join(c_dir, "wal.log")
         entry = {"op": op, "data": data}

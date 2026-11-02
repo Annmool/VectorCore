@@ -4,13 +4,14 @@ LRU Query and Vector Cache with latency measurement and hit-rate statistics.
 
 import time
 import hashlib
+import json
 from collections import OrderedDict
 from typing import Dict, Any, Optional, Tuple
 
 
 class LRUQueryCache:
     """
-    Thread-safe-ready LRU Cache for queries and embeddings with hit/miss analytics.
+    LRU cache for queries with hit/miss analytics.
     """
 
     def __init__(self, capacity: int = 500, ttl_seconds: float = 3600.0):
@@ -22,7 +23,10 @@ class LRUQueryCache:
         self.total_latency_saved_ms = 0.0
 
     def _hash_key(self, key_data: Any) -> str:
-        s = str(key_data).strip().lower()
+        if isinstance(key_data, (dict, list, tuple)):
+            s = json.dumps(key_data, sort_keys=True, ensure_ascii=False, default=str)
+        else:
+            s = str(key_data).strip().lower()
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
 
     def get(self, key: Any) -> Optional[Any]:

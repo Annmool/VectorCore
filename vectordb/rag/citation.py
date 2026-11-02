@@ -1,6 +1,6 @@
 """
-Citation Grounding & Fact Verification Engine.
-Links generated sentences directly to source document chunks with verbatim evidence snippets.
+Citation mapping helper.
+Maps citation numbers to retrieved chunks and reports a lexical-overlap heuristic.
 """
 
 import re
@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Tuple
 
 class CitationEngine:
     """
-    Parses, grounds, and verifies citations in LLM-generated responses.
+    Parses citation numbers and attaches metadata for corresponding retrieved chunks.
     """
 
     @staticmethod
@@ -30,8 +30,8 @@ class CitationEngine:
         response_text: str, context_chunks: List[Dict[str, Any]]
     ) -> Tuple[str, List[Dict[str, Any]], Dict[str, Any]]:
         """
-        Process response text, attach citation metadata, extract direct quotes,
-        and calculate citation faithfulness metrics.
+        Attach citation metadata and calculate a lexical-overlap proxy. This does not
+        verify entailment or establish that every answer claim is supported.
         """
         referenced_indices = CitationEngine.extract_citation_indices(response_text)
         citations = []

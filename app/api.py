@@ -5,13 +5,13 @@ Exposes REST endpoints for indexing, chunking, hybrid search, reranking, RAG, qu
 
 import os
 import time
-import shutil
+import hashlib
 import tempfile
 from typing import List, Dict, Any, Optional, Literal
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 import numpy as np
 
 from vectordb.core.collection import Collection
@@ -37,14 +37,20 @@ from vectordb.visualization.projector import EmbeddingProjector
 
 app = FastAPI(
     title="Mini Vector Database & RAG Core API",
-    description="Full-stack vector database built from scratch with HNSW, IVF, BM25, RRF, Cross-Encoder Reranking, and Grounded Citations.",
+    description="Educational vector search and RAG prototype with custom HNSW, IVF, BM25, RRF, and reranking components.",
     version="1.0.0",
 )
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=[
+        origin.strip()
+        for origin in os.environ.get(
+            "CORS_ORIGINS", "http://localhost:8000,http://127.0.0.1:8000"
+        ).split(",")
+        if origin.strip()
+    ],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -75,60 +81,86 @@ class SystemState:
 state = SystemState()
 
 
+def rebuild_bm25_index() -> None:
+    """Rebuild the sparse index from the active collection snapshot."""
+    state.bm25 = BM25Index()
+    active = [
+        (doc_id, metadata)
+        for doc_id, metadata, deleted in zip(
+            state.collection.index.ids,
+            state.collection.index.metadata,
+            state.collection.index.is_deleted,
+        )
+        if not deleted
+    ]
+    state.bm25.add_documents(
+        [doc_id for doc_id, _ in active],
+        [metadata.get("text", "") for _, metadata in active],
+        [metadata for _, metadata in active],
+    )
+    state.hybrid_retriever.bm25 = state.bm25
+
+
 # Request / Response Schemas
 class QueryRequest(BaseModel):
-    query: str
-    k: int = 5
+    query: str = Field(min_length=1, max_length=4000)
+    k: int = Field(default=5, ge=1, le=100)
     index_type: Optional[Literal["flat", "ivf", "hnsw"]] = None
     filter: Optional[Dict[str, Any]] = None
-    ef_search: Optional[int] = 32
-    nprobe: Optional[int] = 4
+    ef_search: Optional[int] = Field(default=32, ge=1, le=1000)
+    nprobe: Optional[int] = Field(default=4, ge=1, le=1000)
 
 
 class HybridSearchRequest(BaseModel):
-    query: str
-    k: int = 5
+    query: str = Field(min_length=1, max_length=4000)
+    k: int = Field(default=5, ge=1, le=100)
     fusion_method: Literal["rrf", "convex"] = "rrf"
-    alpha: float = 0.65
-    rrf_k: int = 60
+    alpha: float = Field(default=0.65, ge=0.0, le=1.0)
+    rrf_k: int = Field(default=60, ge=1, le=1000)
     filter: Optional[Dict[str, Any]] = None
 
 
 class RerankRequest(BaseModel):
-    query: str
-    k: int = 5
-    initial_k: int = 15
+    query: str = Field(min_length=1, max_length=4000)
+    k: int = Field(default=5, ge=1, le=100)
+    initial_k: int = Field(default=15, ge=1, le=200)
     fusion_method: Literal["rrf", "convex"] = "rrf"
-    alpha: float = 0.65
+    alpha: float = Field(default=0.65, ge=0.0, le=1.0)
     filter: Optional[Dict[str, Any]] = None
 
 
 class RAGRequest(BaseModel):
-    query: str
-    top_k: int = 5
+    query: str = Field(min_length=1, max_length=4000)
+    top_k: int = Field(default=5, ge=1, le=50)
     use_reranker: bool = True
     use_hybrid: bool = True
-    provider: Optional[str] = "auto"
+    provider: Optional[Literal["auto", "gemini", "openai", "ollama", "smart_extractive"]] = "auto"
     filter: Optional[Dict[str, Any]] = None
-    min_score: float = 0.05
+    min_score: float = Field(default=0.05, ge=0.0, le=1.0)
 
 
 class TextIngestRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=2_000_000)
     source_name: str = "custom_document"
     chunking_strategy: Literal["fixed", "sentence", "semantic"] = "semantic"
-    chunk_size: int = 500
-    chunk_overlap: int = 80
+    chunk_size: int = Field(default=500, ge=50, le=10_000)
+    chunk_overlap: int = Field(default=80, ge=0, le=9_999)
     metadata: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="after")
+    def validate_chunk_overlap(self):
+        if self.chunk_overlap >= self.chunk_size:
+            raise ValueError("chunk_overlap must be smaller than chunk_size")
+        return self
 
 
 class ChunkCompareRequest(BaseModel):
-    text: str
+    text: str = Field(min_length=1, max_length=500_000)
 
 
 class QuantizationRequest(BaseModel):
     type: Literal["int8_scalar", "product_quantization"] = "int8_scalar"
-    num_subvectors: int = 8
+    num_subvectors: int = Field(default=8, ge=1, le=384)
 
 
 class SwitchIndexRequest(BaseModel):
@@ -136,14 +168,14 @@ class SwitchIndexRequest(BaseModel):
 
 
 class ProjectQueryRequest(BaseModel):
-    query: str
-    k: int = 5
+    query: str = Field(min_length=1, max_length=4000)
+    k: int = Field(default=5, ge=1, le=100)
 
 
 class HNSWTraceRequest(BaseModel):
-    query: str
-    k: int = 5
-    ef_search: Optional[int] = 32
+    query: str = Field(min_length=1, max_length=4000)
+    k: int = Field(default=5, ge=1, le=100)
+    ef_search: Optional[int] = Field(default=32, ge=1, le=1000)
 
 
 def seed_knowledge_base(force: bool = False):
@@ -180,7 +212,9 @@ def seed_knowledge_base(force: bool = False):
 
     embeddings = state.embedder.embed_texts(chunk_texts)
     state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
-    state.bm25.add_documents(chunk_ids, chunk_texts, chunk_metas)
+    rebuild_bm25_index()
+    state.collection.save()
+    state.cache.clear()
 
     return {"status": "seeded", "chunks_indexed": len(all_chunks), "documents": len(PAPERS_CORPUS)}
 
@@ -188,7 +222,13 @@ def seed_knowledge_base(force: bool = False):
 @app.on_event("startup")
 def startup_event():
     try:
-        seed_knowledge_base(force=False)
+        restored = Collection.load("ai_research_kb", storage_engine=state.storage)
+        if restored is not None:
+            state.collection = restored
+            state.hybrid_retriever.collection = restored
+            rebuild_bm25_index()
+        else:
+            seed_knowledge_base(force=False)
         print(f"[VectorDB] Startup complete. Indexed {len(state.collection)} chunks.")
     except Exception as e:
         print(f"[VectorDB] Startup notice: {e}")
@@ -234,6 +274,8 @@ def switch_index(req: SwitchIndexRequest):
 
     state.collection = new_coll
     state.hybrid_retriever.collection = new_coll
+    state.collection.save()
+    state.cache.clear()
 
     return {
         "status": "success",
@@ -266,12 +308,19 @@ def ingest_text(req: TextIngestRequest):
         raise HTTPException(status_code=400, detail="Document produced 0 chunks.")
 
     chunk_texts = [c.text for c in chunks]
-    chunk_ids = [c.chunk_id for c in chunks]
-    chunk_metas = [c.to_dict() for c in chunks]
+    id_material = f"{req.source_name}:{req.chunking_strategy}:{req.chunk_size}:{req.chunk_overlap}:".encode("utf-8") + req.text.encode("utf-8")
+    content_hash = hashlib.sha256(id_material).hexdigest()[:16]
+    chunk_ids = [f"text_{content_hash}_{i}" for i in range(len(chunks))]
+    chunk_metas = [
+        {**chunk.to_dict(), "chunk_id": chunk_id}
+        for chunk, chunk_id in zip(chunks, chunk_ids)
+    ]
 
     embeddings = state.embedder.embed_texts(chunk_texts)
     state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
-    state.bm25.add_documents(chunk_ids, chunk_texts, chunk_metas)
+    rebuild_bm25_index()
+    state.collection.save()
+    state.cache.clear()
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
     return {
@@ -286,13 +335,20 @@ def ingest_text(req: TextIngestRequest):
 @app.post("/api/documents/upload")
 async def upload_file(
     file: UploadFile = File(...),
-    chunking_strategy: str = Form("semantic"),
-    chunk_size: int = Form(500),
+    chunking_strategy: Literal["fixed", "sentence", "semantic"] = Form("semantic"),
+    chunk_size: int = Form(500, ge=50, le=10_000),
 ):
     """Upload and index PDF, Markdown, or Text files."""
-    suffix = os.path.splitext(file.filename)[1]
+    filename = os.path.basename(file.filename or "upload.txt")
+    suffix = os.path.splitext(filename)[1].lower()
+    if suffix not in {".pdf", ".md", ".markdown", ".txt", ".py", ".html", ".htm"}:
+        raise HTTPException(status_code=415, detail="Unsupported file type.")
+    max_upload_bytes = 10 * 1024 * 1024
+    contents = await file.read(max_upload_bytes + 1)
+    if len(contents) > max_upload_bytes:
+        raise HTTPException(status_code=413, detail="Upload exceeds the 10 MB limit.")
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        shutil.copyfileobj(file.file, tmp)
+        tmp.write(contents)
         tmp_path = tmp.name
 
     try:
@@ -302,7 +358,7 @@ async def upload_file(
 
         # Update source metadata
         for d in docs:
-            d.metadata["source"] = file.filename
+            d.metadata["source"] = filename
 
         if chunking_strategy == "fixed":
             chunker = FixedSizeChunker(chunk_size=chunk_size)
@@ -316,16 +372,23 @@ async def upload_file(
             all_chunks.extend(chunker.split_document(d))
 
         chunk_texts = [c.text for c in all_chunks]
-        chunk_ids = [f"{file.filename}_{c.chunk_id}" for c in all_chunks]
-        chunk_metas = [c.to_dict() for c in all_chunks]
+        id_material = f"{filename}:{chunking_strategy}:{chunk_size}:".encode("utf-8") + contents
+        content_hash = hashlib.sha256(id_material).hexdigest()[:16]
+        chunk_ids = [f"upload_{content_hash}_{i}" for i in range(len(all_chunks))]
+        chunk_metas = [
+            {**chunk.to_dict(), "chunk_id": chunk_id}
+            for chunk, chunk_id in zip(all_chunks, chunk_ids)
+        ]
 
         embeddings = state.embedder.embed_texts(chunk_texts)
         state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
-        state.bm25.add_documents(chunk_ids, chunk_texts, chunk_metas)
+        rebuild_bm25_index()
+        state.collection.save()
+        state.cache.clear()
 
         return {
             "status": "success",
-            "filename": file.filename,
+            "filename": filename,
             "pages_or_sections": len(docs),
             "chunks_created": len(all_chunks),
             "strategy": chunking_strategy,
@@ -437,11 +500,18 @@ def search_rerank(req: RerankRequest):
 @app.post("/api/rag/ask")
 def rag_ask(req: RAGRequest):
     """
-    End-to-End RAG Query:
-    Checks Query Cache -> Hybrid Search -> Neural Rerank -> LLM Generation -> Inline Citations.
+    End-to-End RAG query with retrieval, optional reranking, generation, and chunk citations.
     """
     t_start = time.perf_counter()
-    cache_key = f"rag:{req.query}:{req.top_k}:{req.use_reranker}:{req.use_hybrid}"
+    cache_key = {
+        "query": req.query.strip().casefold(),
+        "top_k": req.top_k,
+        "use_reranker": req.use_reranker,
+        "use_hybrid": req.use_hybrid,
+        "provider": req.provider,
+        "filter": req.filter,
+        "min_score": req.min_score,
+    }
     cached = state.cache.get(cache_key)
 
     if cached:
@@ -514,6 +584,11 @@ def run_quantization(req: QuantizationRequest):
     """Run live Scalar or Product Quantization and return compression & reconstruction stats."""
     if req.type == "int8_scalar":
         return state.collection.quantize_scalar()
+    if state.embedder.dim % req.num_subvectors != 0:
+        raise HTTPException(
+            status_code=422,
+            detail="num_subvectors must divide the embedding dimension evenly.",
+        )
     else:
         return state.collection.quantize_product(num_subvectors=req.num_subvectors)
 

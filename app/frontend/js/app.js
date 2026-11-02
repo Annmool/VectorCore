@@ -4,6 +4,9 @@
  */
 
 document.addEventListener("DOMContentLoaded", () => {
+  const escapeHtml = (value) => String(value ?? "").replace(/[&<>\"']/g, (char) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[char]);
   // Tab Navigation & Breadcrumb Setup
   const navItems = document.querySelectorAll(".nav-item");
   const tabPanes = document.querySelectorAll(".tab-pane");
@@ -257,7 +260,7 @@ document.addEventListener("DOMContentLoaded", () => {
       renderRAGResponse(data);
       refreshSystemStatus();
     } catch (err) {
-      ragAnswerText.innerHTML = `<div class="grounded-placeholder" style="color: var(--accent-rose);"><p>Error: ${err.message}</p></div>`;
+      ragAnswerText.innerHTML = `<div class="grounded-placeholder" style="color: var(--accent-rose);"><p>Error: ${escapeHtml(err.message)}</p></div>`;
     } finally {
       ragSubmitBtn.disabled = false;
       ragSubmitBtn.innerHTML = `
@@ -274,7 +277,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (ragEngineBadge) ragEngineBadge.textContent = `Engine: ${data.engine || "Extractive Synthesizer"}`;
     if (ragCacheBadge) ragCacheBadge.style.display = data.cache_hit ? "inline-block" : "none";
 
-    let formattedHtml = (data.answer || "")
+    let formattedHtml = escapeHtml(data.answer || "")
       .replace(/\n\n/g, "</p><p>")
       .replace(/^- (.*)$/gm, "<li>$1</li>")
       .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
@@ -314,7 +317,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <span class="evidence-index">${formattedIndex}</span>
             <span class="evidence-score">${formattedScore}</span>
           </div>
-          <h4 class="evidence-title">${c.source || "Research Document"}</h4>
+          <h4 class="evidence-title">${escapeHtml(c.source || "Research Document")}</h4>
           <div class="evidence-meta">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
@@ -322,7 +325,7 @@ document.addEventListener("DOMContentLoaded", () => {
             </svg>
             <span>paper &bull; 384 tokens</span>
           </div>
-          <p class="evidence-snippet">${c.snippet || ""}</p>
+          <p class="evidence-snippet">${escapeHtml(c.snippet || "")}</p>
         `;
         citationsListBody.appendChild(item);
       });
@@ -530,6 +533,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!tableBody) return;
 
     let rowsHtml = "";
+    const rowDetails = [];
     strategies.forEach((st) => {
       const topResult = st.results && st.results.length > 0 ? st.results[0] : null;
       const title = topResult
@@ -537,10 +541,10 @@ document.addEventListener("DOMContentLoaded", () => {
         : st.defaultName;
       const score = topResult ? (topResult.rerank_score || topResult.score || 0.942).toFixed(3) : "0.942";
       const snippet = topResult ? topResult.text || topResult.metadata?.text || "" : "";
-      const escapedSnippet = (snippet || "Vector document chunk excerpt.").replace(/'/g, "\\'").replace(/\n/g, " ");
+      rowDetails.push({ title, strategy: st.strategy, snippet: snippet || "Vector document chunk excerpt.", score, latency: st.latency });
 
       rowsHtml += `
-        <div class="studio-table-row" style="cursor:pointer;" onclick="window.openChunkInspector('${title.replace(/'/g, "\\'")}', '${st.strategy}', 'VectorCore / core / indexing', '${escapedSnippet}', '${score}', '${st.latency}')">
+        <div class="studio-table-row" style="cursor:pointer;">
           <div class="row-cell-result">
             <div class="file-icon-badge ${st.badgeClass}">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -551,7 +555,7 @@ document.addEventListener("DOMContentLoaded", () => {
               </svg>
             </div>
             <div class="file-details">
-              <span class="file-name">${title}</span>
+              <span class="file-name">${escapeHtml(title)}</span>
               <span class="file-path">VectorCore / core / indexing</span>
             </div>
           </div>
@@ -576,6 +580,17 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     tableBody.innerHTML = rowsHtml;
+    tableBody.querySelectorAll(".studio-table-row").forEach((row, index) => {
+      const detail = rowDetails[index];
+      row.addEventListener("click", () => window.openChunkInspector(
+        detail.title,
+        detail.strategy,
+        "VectorCore / core / indexing",
+        detail.snippet,
+        detail.score,
+        detail.latency,
+      ));
+    });
   }
 
   studioSearchBtn?.addEventListener("click", executeStudioSearch);
@@ -1413,11 +1428,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const metaEl = document.getElementById("proj-detail-meta");
         metaEl.innerHTML = `
-          <span><strong>ID:</strong> ${pt.id}</span>
-          <span><strong>Source:</strong> ${pt.meta?.source || pt.cluster}</span>
-          <span><strong>2D Coords:</strong> (${pt.x}, ${pt.y})</span>
-          ${pt.meta?.year ? `<span><strong>Year:</strong> ${pt.meta.year}</span>` : ""}
-          ${pt.meta?.section ? `<span><strong>Section:</strong> ${pt.meta.section}</span>` : ""}
+          <span><strong>ID:</strong> ${escapeHtml(pt.id)}</span>
+          <span><strong>Source:</strong> ${escapeHtml(pt.meta?.source || pt.cluster)}</span>
+          <span><strong>2D Coords:</strong> (${escapeHtml(pt.x)}, ${escapeHtml(pt.y)})</span>
+          ${pt.meta?.year ? `<span><strong>Year:</strong> ${escapeHtml(pt.meta.year)}</span>` : ""}
+          ${pt.meta?.section ? `<span><strong>Section:</strong> ${escapeHtml(pt.meta.section)}</span>` : ""}
         `;
 
         panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -1470,7 +1485,7 @@ BM25 is a probabilistic ranking function based on term frequencies and document 
               <span>Chunk #${i + 1}</span>
               <span>${c.text.length} chars</span>
             </div>
-            <div class="chunk-block-text">${c.text}</div>
+          <div class="chunk-block-text">${escapeHtml(c.text)}</div>
           </div>
         `
           )
@@ -1574,7 +1589,7 @@ BM25 is a probabilistic ranking function based on term frequencies and document 
       tableHtml += `</tbody></table>`;
       container.innerHTML = tableHtml;
     } catch (err) {
-      container.innerHTML = `<p style="color: var(--brand-rose);">Benchmark error: ${err.message}</p>`;
+      container.innerHTML = `<p style="color: var(--brand-rose);">Benchmark error: ${escapeHtml(err.message)}</p>`;
     } finally {
       btn.disabled = false;
     }
@@ -1614,7 +1629,7 @@ BM25 is a probabilistic ranking function based on term frequencies and document 
         </div>
       `;
     } catch (err) {
-      container.innerHTML = `<p style="color: var(--brand-rose);">Evaluation error: ${err.message}</p>`;
+      container.innerHTML = `<p style="color: var(--brand-rose);">Evaluation error: ${escapeHtml(err.message)}</p>`;
     } finally {
       btn.disabled = false;
     }
@@ -1631,7 +1646,7 @@ BM25 is a probabilistic ranking function based on term frequencies and document 
   fileInput.addEventListener("change", (e) => {
     if (e.target.files.length > 0) {
       selectedFile = e.target.files[0];
-      dropZone.querySelector(".drop-prompt").innerHTML = `Selected: <strong>${selectedFile.name}</strong> (${(selectedFile.size / 1024).toFixed(1)} KB)`;
+      dropZone.querySelector(".drop-prompt").innerHTML = `Selected: <strong>${escapeHtml(selectedFile.name)}</strong> (${(selectedFile.size / 1024).toFixed(1)} KB)`;
     }
   });
 
@@ -1660,12 +1675,12 @@ BM25 is a probabilistic ranking function based on term frequencies and document 
       const data = await res.json();
       statusBox.innerHTML = `
         <div class="badge badge-cache" style="padding: 8px 12px;">
-          Successfully indexed "${data.filename}": Created ${data.chunks_created} vector chunks!
+          Successfully indexed "${escapeHtml(data.filename)}": Created ${escapeHtml(data.chunks_created)} vector chunks!
         </div>
       `;
       refreshSystemStatus();
     } catch (err) {
-      statusBox.innerHTML = `<p style="color: var(--brand-rose);">Upload failed: ${err.message}</p>`;
+      statusBox.innerHTML = `<p style="color: var(--brand-rose);">Upload failed: ${escapeHtml(err.message)}</p>`;
     } finally {
       btn.disabled = false;
     }

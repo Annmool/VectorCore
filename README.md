@@ -2,7 +2,7 @@
 
 # ⚡ VectorCore
 
-**A High-Performance Mini Vector Database & Grounded RAG Engine Built Completely from Mathematical First Principles in Python & NumPy.**
+**An educational vector search and RAG prototype with custom NumPy indexes and an interactive research console.**
 
 [![Live Demo](https://img.shields.io/badge/Live%20Demo-VectorCore%20Console-00f59b?style=for-the-badge&logo=render&logoColor=08090b)](https://vectorcore-tz2v.onrender.com/)
 
@@ -10,11 +10,10 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110%2B-00f59b?style=flat-square&logo=fastapi&logoColor=08090b)](https://fastapi.tiangolo.com/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-00f59b?style=flat-square&logo=docker&logoColor=08090b)](https://www.docker.com/)
 [![License](https://img.shields.io/badge/License-MIT-fbbf24?style=flat-square)](LICENSE)
-[![Tests](https://img.shields.io/badge/Tests-40%2F40%20Passing-00f59b?style=flat-square)](tests/)
 
 🌐 **Live Console:** [https://vectorcore-tz2v.onrender.com](https://vectorcore-tz2v.onrender.com) &nbsp;|&nbsp; 📖 **API Docs:** [https://vectorcore-tz2v.onrender.com/docs](https://vectorcore-tz2v.onrender.com/docs)
 
-*Zero black-box wrappers (no Chroma, no Pinecone, no FAISS dependencies for indexing algorithms).*
+*The Flat, IVF, HNSW, BM25, and quantization implementations are project code. FAISS is an optional comparison dependency, not used by those implementations.*
 
 </div>
 
@@ -39,7 +38,7 @@
 
 ## 🏗️ Overview & Architecture
 
-VectorCore is an end-to-end vector search and retrieval-augmented generation engine implementing every layer of modern vector database engineering from scratch:
+VectorCore is a learning project that connects document ingestion, custom vector indexes, lexical retrieval, reranking, and a small RAG interface. It is not a production database; persistence currently uses collection snapshots, and the operation journal is not replayed during recovery.
 
 ```
                                   +---------------------------------------+
@@ -99,13 +98,13 @@ VectorCore is an end-to-end vector search and retrieval-augmented generation eng
 - **Flat Index (`vectordb/core/flat_index.py`)**: Exact matrix-vector cosine/Euclidean distance computation in NumPy, serving as the ground-truth baseline with MongoDB-style metadata filtering (`$eq`, `$gt`, `$in`, `$and`, `$or`).
 - **Inverted File (IVF) Index (`vectordb/core/ivf_index.py`)**: Custom K-Means clustering partitions high-dimensional vector space into Voronoi cells. At query time, only the $n_{probe}$ closest centroids are scanned ($\mathcal{O}(n_{probe} \cdot \frac{N}{K} \cdot d)$).
 - **Hierarchical Navigable Small World (HNSW) (`vectordb/core/hnsw_index.py`)**:
-  - Probabilistic multi-layer skip-graph hierarchy ($\mathcal{O}(\log N)$ complexity).
+  - Probabilistic multi-layer graph hierarchy with expected sublinear search behavior; actual performance depends on data and parameters.
   - Greedy nearest-neighbor search routing across upper skip layers.
   - `SELECT-NEIGHBORS-HEURISTIC` ensuring angular diversity and preventing clustering bottlenecks.
   - Dynamic graph topology export and real-time 2.5D visualizer.
 
-### 2. Vector Quantization & Memory Compression
-- **Int8 Scalar Quantization (`vectordb/core/quantization.py`)**: Compresses continuous 32-bit floats into signed 8-bit integers with calibrated min/max scaling factors ($\mathbf{4\times\text{ memory reduction}}$).
+### 2. Vector Quantization Experiments
+- **Int8 Scalar Quantization (`vectordb/core/quantization.py`)**: Converts vectors to signed 8-bit codes and measures reconstruction error. The API currently runs this as an experiment; it does not replace the live index vectors or reduce the running index's memory use.
 - **Product Quantization (PQ)**: Decomposes $D$-dimensional space into $M=8$ orthogonal sub-vectors and trains 256 sub-centroids per sub-space.
 - **Asymmetric Distance Computation (ADC)**: Computes query-to-database distances directly in quantized code space using centroid distance lookup tables—**zero vector decompression required at query time**.
 
@@ -121,9 +120,8 @@ VectorCore is an end-to-end vector search and retrieval-augmented generation eng
 - **Cross-Encoder Neural Reranker (`vectordb/retrieval/reranker.py`)**: Full query-document cross-attention using `cross-encoder/ms-marco-MiniLM-L-6-v2` with Sigmoid score calibration.
 
 ### 5. Grounded RAG & Inline Citations
-- Strict factual answer synthesis with verified inline bracketed citations (`[1]`, `[2]`).
-- Every citation is bidirectionally linked to the paper source, section, relevance score, and underlying text snippet.
-- **Two-Tier Semantic Cache (`vectordb/rag/cache.py`)**: LRU in-memory cache for sub-millisecond query reuse.
+- Answer synthesis with inline bracketed citations (`[1]`, `[2]`) linked to retrieved chunks and their metadata. Citation presence is provenance, not an automated proof that every claim is supported.
+- **Query Result Cache (`vectordb/rag/cache.py`)**: In-memory LRU cache keyed by the query and answer-changing request options.
 - **Latency Waterfall**: Fine-grained telemetry measuring Retrieval $\to$ Rerank $\to$ Generation execution times.
 
 ---
@@ -171,7 +169,7 @@ python -m pytest -v
 
 ---
 
-## 🐳 Docker & Cloud Deployment
+## 🐳 Docker Deployment
 
 ### Run with Docker Compose
 ```bash
@@ -188,17 +186,17 @@ docker run -p 8000:8000 -v ./data:/app/data vectorcore
 
 ## 📊 Evaluation & Benchmarks
 
-### 1. Research Corpus Benchmark (15 Documents & Grounded QA)
-VectorCore includes an evaluation suite against a 15-question research benchmark dataset using domain papers:
+### 1. Research Corpus Benchmark (author-reported results)
+The repository includes a small bundled QA evaluation set. The table below is historical author-reported output, not generated by the interactive benchmark endpoint; that endpoint currently compares indexes on synthetic random vectors. Treat these values as provisional until you reproduce them with the listed corpus, query set, and machine.
 
-| Index Type | Build Time (15 docs + Embeddings) | Query Latency (P95) | Recall@5 |
+| Index Type | Reported Build Time (15 docs + Embeddings) | Reported Query Latency (P95) | Reported Recall@5 |
 | :--- | :--- | :--- | :--- |
-| **Flat (Exact)** | Instant ($\mathcal{O}(1)$) | ~1.8 ms | **1.000** |
-| **IVF (K-Means)** | ~180 ms | ~0.6 ms | **0.942** |
-| **HNSW (Skip-Graph)** | ~210 ms | **~0.25 ms** | **0.986** |
-| **Product Quantization (PQ)** | ~450 ms | ~0.4 ms | **0.912** |
+| **Flat (Exact)** | Not reported reproducibly | Historical: ~1.8 ms | Historical: **1.000** |
+| **IVF (K-Means)** | Historical: ~180 ms | Historical: ~0.6 ms | Historical: **0.942** |
+| **HNSW (Skip-Graph)** | Historical: ~210 ms | Historical: ~0.25 ms | Historical: **0.986** |
+| **Product Quantization (PQ)** | Historical: ~450 ms | Historical: ~0.4 ms | Historical: **0.912** |
 
-### 2. Standalone HNSW Scaling Benchmark (32-dim Cosine)
+### 2. Standalone HNSW Scaling Benchmark (author-reported; 32-dim cosine)
 Empirical benchmarks comparing the optimized NumPy HNSW engine against the unoptimized baseline on a standard Python 3.12 64-bit runtime:
 
 | Dataset Size | Insert Time | Insert Throughput | Query Latency (100 queries) | Speedup vs Baseline |
@@ -224,7 +222,7 @@ python -m vectordb.evaluation.benchmark_hnsw_profile --sizes 1000 5000 10000
 ```
 
 ### 3. Reference Comparison: Custom NumPy HNSW vs. FAISS C++ HNSW
-Direct side-by-side evaluation against Meta's `faiss.IndexHNSWFlat` (compiled C++ with AVX2 instruction set) on 10,000 vectors from the standard GloVe-25 word embedding benchmark (`M=16`, `efConstruction=64`, Cosine Metric, `k=10`).
+The repository includes a script for side-by-side evaluation against `faiss.IndexHNSWFlat`. The figures below are author-reported measurements and are hardware/runtime dependent; they are not CI guarantees. The interactive API benchmark uses synthetic random vectors, so it should be read as an algorithm exercise rather than a real-world retrieval quality result.
 
 > [!NOTE]
 > **Performance Trade-Off Framing**:
@@ -259,15 +257,25 @@ python -m vectordb.evaluation.benchmark_ann_reference --dataset glove-25 --n-doc
 | Method | Endpoint | Description |
 | :--- | :--- | :--- |
 | `GET` | `/api/status` | System health, vector count, active index, and cache statistics |
-| `POST` | `/api/rag/ask` | Grounded RAG query with citations and latency waterfall |
-| `POST` | `/api/search/multi` | 4-way search comparison (Dense, BM25, Hybrid, Rerank) |
-| `GET` | `/api/hnsw/graph` | HNSW graph nodes, edges, levels, and entry point |
+| `POST` | `/api/rag/ask` | RAG query with chunk citations and latency breakdown |
+| `POST` | `/api/search/dense` | Dense vector search |
+| `POST` | `/api/search/bm25` | BM25 keyword search |
+| `POST` | `/api/search/hybrid` | Dense and BM25 fusion |
+| `POST` | `/api/search/rerank` | Hybrid search followed by reranking |
 | `POST` | `/api/chunking/compare` | Compare Fixed, Sentence, and Semantic chunkers |
-| `POST` | `/api/quantization/int8` | Execute Int8 scalar quantization benchmark |
-| `POST` | `/api/quantization/pq` | Train Product Quantizer and compute reconstruction MSE |
+| `POST` | `/api/quantization/run` | Run an Int8 or PQ reconstruction experiment |
 | `POST` | `/api/benchmark/run` | Benchmark Flat, IVF, HNSW, and FAISS |
-| `POST` | `/api/benchmark/eval` | Evaluate Recall@1/5, MRR, MAP, and NDCG |
-| `POST` | `/api/upload` | Ingest PDF, Markdown, Python code, or Plaintext |
+| `POST` | `/api/evaluate/run` | Evaluate Recall@K, MRR, MAP, and NDCG on the bundled QA pairs |
+| `POST` | `/api/documents/ingest` | Ingest raw text |
+| `POST` | `/api/documents/upload` | Upload PDF, Markdown, code, or text (10 MB limit) |
+| `POST` | `/api/collection/seed` | Rebuild the bundled research corpus |
+| `POST` | `/api/collection/switch-index` | Rebuild the collection with another index type |
+| `GET` | `/api/hnsw/graph` | Return HNSW topology when HNSW is active |
+| `POST` | `/api/hnsw/trace` | Return a traced HNSW query |
+| `GET` | `/api/visualization/embedding-space` | Return a 2D embedding projection |
+| `POST` | `/api/visualization/project-query` | Project a query and return nearest neighbors |
+| `GET` | `/api/cache/stats` | Read query-cache metrics |
+| `POST` | `/api/cache/clear` | Clear the query cache |
 
 ---
 
@@ -283,9 +291,9 @@ VectorCore/
 │       ├── css/styles.css        # Matrix design system & micro-animations
 │       └── js/app.js             # Canvas visualizer & interactive client logic
 ├── data/
-│   └── collections/              # Persistent vector storage & WAL logs
+│   └── collections/              # Collection snapshots and diagnostic operation journal
 ├── tests/
-│   ├── test_chunker.py           # Unit tests for 3 chunking strategies
+│   ├── test_chunkers.py          # Unit tests for 3 chunking strategies
 │   ├── test_distance.py          # Vectorized distance metric tests
 │   ├── test_indexes.py           # Flat, IVF, and HNSW validation tests
 │   └── test_quantization.py      # Int8 & Product Quantization tests
@@ -297,15 +305,15 @@ VectorCore/
 │   │   ├── hnsw_index.py         # Multi-layer HNSW skip-graph
 │   │   ├── quantization.py       # Scalar & Product Quantization (ADC)
 │   │   ├── collection.py         # Document collection & CRUD
-│   │   └── storage.py            # Disk serialization & WAL persistence
+│   │   └── storage.py            # Disk snapshots and diagnostic operation journal
 │   ├── embeddings/               # Sentence-Transformers embedding wrapper
 │   ├── evaluation/               # Benchmark dataset, IR metrics & FAISS suite
 │   ├── ingestion/                # Document loaders & chunkers
 │   ├── rag/                      # RAG synthesizer, citations & LRU cache
 │   └── retrieval/                # BM25Okapi, RRF Hybrid fusion & Cross-Encoder
-├── Dockerfile                    # Multi-stage production container
+├── Dockerfile                    # Single-stage Docker image
 ├── docker-compose.yml            # Container orchestration with volume mounts
-├── requirements.txt              # Production dependencies
+├── requirements.txt              # Python dependencies
 ├── run_server.py                 # Server entrypoint
 └── README.md                     # Documentation
 ```

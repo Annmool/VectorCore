@@ -1,6 +1,6 @@
 """
-Multi-backend RAG Generator supporting Gemini, OpenAI, Ollama, and Built-in Extractive Synthesis.
-Always guarantees grounded, cited responses.
+Multi-backend RAG Generator supporting Gemini, OpenAI, Ollama, and built-in extractive synthesis.
+Responses include chunk citation metadata; citation presence does not prove factual support.
 """
 
 import os
@@ -43,7 +43,7 @@ Please provide a detailed, accurate response with inline citations [1], [2] poin
 
 class RAGGenerator:
     """
-    RAG Orchestrator handling LLM generation, fallback synthesis, and citation grounding.
+    RAG orchestrator handling LLM generation, fallback synthesis, and citation metadata.
     """
 
     def __init__(
