@@ -411,7 +411,7 @@
                 <circle cx="11" cy="11" r="8"></circle>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
               </svg>
-              <input type="text" id="studio-query-input" class="studio-input" value="HNSW graph traversal" placeholder="Search code, papers, or technical concepts...">
+              <input type="text" id="studio-query-input" class="studio-input" maxlength="4000" placeholder="Search indexed documents, e.g. HNSW graph traversal">
               
               <div class="search-right-utilities">
                 <span class="key-shortcut-badge">⌘ K</span>
@@ -472,142 +472,8 @@
               <span class="col-th col-th-action"></span>
             </div>
 
-            <div class="studio-table-body" id="studio-table-rows">
-              <!-- Row 1: Dense Vector (hnsw_search.py) -->
-              <div class="studio-table-row">
-                <div class="row-cell-result">
-                  <div class="file-icon-badge badge-green">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                      <line x1="16" y1="13" x2="8" y2="13"></line>
-                      <line x1="16" y1="17" x2="8" y2="17"></line>
-                    </svg>
-                  </div>
-                  <div class="file-details">
-                    <span class="file-name">hnsw_search.py</span>
-                    <span class="file-path">VectorCore / core / indexing</span>
-                  </div>
-                </div>
-
-                <div class="row-cell-strategy">
-                  <span class="strategy-pill pill-dense-green">Dense vector</span>
-                </div>
-
-                <div class="row-cell-score">0.942</div>
-                <div class="row-cell-latency">2.8 ms</div>
-
-                <div class="row-cell-action">
-                  <button class="open-link-btn" title="Inspect Chunk">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <line x1="7" y1="17" x2="17" y2="7"></line>
-                      <polyline points="7 7 17 7 17 17"></polyline>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Row 2: Hybrid RRF (index_builder.py) -->
-              <div class="studio-table-row">
-                <div class="row-cell-result">
-                  <div class="file-icon-badge badge-blue">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                      <line x1="16" y1="13" x2="8" y2="13"></line>
-                      <line x1="16" y1="17" x2="8" y2="17"></line>
-                    </svg>
-                  </div>
-                  <div class="file-details">
-                    <span class="file-name">index_builder.py</span>
-                    <span class="file-path">VectorCore / core / indexing</span>
-                  </div>
-                </div>
-
-                <div class="row-cell-strategy">
-                  <span class="strategy-pill pill-hybrid-blue">Hybrid RRF</span>
-                </div>
-
-                <div class="row-cell-score">0.918</div>
-                <div class="row-cell-latency">4.1 ms</div>
-
-                <div class="row-cell-action">
-                  <button class="open-link-btn" title="Inspect Chunk">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <line x1="7" y1="17" x2="17" y2="7"></line>
-                      <polyline points="7 7 17 7 17 17"></polyline>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Row 3: Dense Vector (pq_encoder.py) -->
-              <div class="studio-table-row">
-                <div class="row-cell-result">
-                  <div class="file-icon-badge badge-purple">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                      <line x1="16" y1="13" x2="8" y2="13"></line>
-                      <line x1="16" y1="17" x2="8" y2="17"></line>
-                    </svg>
-                  </div>
-                  <div class="file-details">
-                    <span class="file-name">pq_encoder.py</span>
-                    <span class="file-path">VectorCore / core / indexing</span>
-                  </div>
-                </div>
-
-                <div class="row-cell-strategy">
-                  <span class="strategy-pill pill-dense-purple">Dense vector</span>
-                </div>
-
-                <div class="row-cell-score">0.887</div>
-                <div class="row-cell-latency">3.4 ms</div>
-
-                <div class="row-cell-action">
-                  <button class="open-link-btn" title="Inspect Chunk">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <line x1="7" y1="17" x2="17" y2="7"></line>
-                      <polyline points="7 7 17 7 17 17"></polyline>
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Row 4: BM25 (bm25.py) -->
-              <div class="studio-table-row">
-                <div class="row-cell-result">
-                  <div class="file-icon-badge badge-amber">
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                      <line x1="16" y1="13" x2="8" y2="13"></line>
-                      <line x1="16" y1="17" x2="8" y2="17"></line>
-                    </svg>
-                  </div>
-                  <div class="file-details">
-                    <span class="file-name">bm25.py</span>
-                    <span class="file-path">VectorCore / core / indexing</span>
-                  </div>
-                </div>
-
-                <div class="row-cell-strategy">
-                  <span class="strategy-pill pill-bm25-amber">BM25</span>
-                </div>
-
-                <div class="row-cell-score">0.864</div>
-                <div class="row-cell-latency">1.9 ms</div>
-
-                <div class="row-cell-action">
-                  <button class="open-link-btn" title="Inspect Chunk">
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <line x1="7" y1="17" x2="17" y2="7"></line>
-                      <polyline points="7 7 17 7 17 17"></polyline>
-                    </svg>
-                  </button>
-                </div>
-              </div>
+            <div class="studio-table-body" id="studio-table-rows" aria-live="polite">
+              <p class="empty-hint">Search the indexed documents to compare retrieval strategies.</p>
             </div>
           </div>
         </section>
@@ -991,22 +857,21 @@
     <div class="card modal-dialog" style="width: 540px;">
       <div class="card-header" style="border:none; padding:0 0 14px 0; display:flex; justify-content:space-between; align-items:center;">
         <div>
-          <span class="card-micro-label" id="chunk-modal-strategy">STRATEGY: DENSE VECTOR</span>
+          <span class="card-micro-label" id="chunk-modal-strategy"></span>
           <h3 class="card-title" id="chunk-modal-title" style="margin-top:2px;">Document Details</h3>
         </div>
         <button class="pill-btn btn-sm" id="btn-close-chunk-modal">&times;</button>
       </div>
-      <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;" id="chunk-modal-meta">Path: VectorCore / core / indexing</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;" id="chunk-modal-meta"></div>
       <div style="background:var(--bg-input); border:1px solid var(--border-default); border-radius:6px; padding:14px; font-size:13px; line-height:1.6; color:var(--text-primary); max-height:280px; overflow-y:auto;" id="chunk-modal-text">
-        Loading chunk excerpt...
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; margin-top:14px; font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted);">
-        <span>Similarity Score: <strong id="chunk-modal-score" style="color:#10b981;">0.942</strong></span>
-        <span>Latency: <strong id="chunk-modal-latency" style="color:var(--text-white);">2.8 ms</strong></span>
+        <span>Ranking score: <strong id="chunk-modal-score" style="color:#10b981;"></strong></span>
+        <span>Latency: <strong id="chunk-modal-latency" style="color:var(--text-white);"></strong></span>
       </div>
     </div>
   </div>
 
-  <script src="js/app.js?v=4.3"></script>
+  <script src="js/app.js?v=4.4"></script>
 </body>
 </html>

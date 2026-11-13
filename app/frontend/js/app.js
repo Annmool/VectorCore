@@ -445,88 +445,62 @@ document.addEventListener("DOMContentLoaded", () => {
   const studioSearchBtn = document.getElementById("btn-studio-search");
   const studioInput = document.getElementById("studio-query-input");
 
+  let studioPending = false;
+
   async function executeStudioSearch() {
     const query = studioInput?.value.trim();
-    if (!query) return;
+    if (!query || studioPending) return;
 
-    const fusionMode = document.getElementById("studio-fusion-mode")?.value || "rrf";
-    const alpha = parseFloat(studioAlphaSlider?.value || "0.65");
-    const yearFilter = document.getElementById("studio-year-filter")?.value || "all";
-    const filter = yearFilter !== "all" ? { year: { $gte: parseInt(yearFilter, 10) } } : null;
+    const fusionMode = document.getElementById("studio-fusion-mode").value;
+    const alpha = Number(studioAlphaSlider.value);
+    const year = document.getElementById("studio-year-filter").value;
+    const filter = year === "all" ? null : { year: { $gte: Number(year) } };
+    const base = { query, k: 1, filter };
+    const hybrid = { ...base, fusion_method: fusionMode, alpha };
+    const strategies = [
+      { name: "Dense vector", color: "pill-dense-green", endpoint: "dense", body: base },
+      { name: fusionMode === "rrf" ? "Hybrid RRF" : "Hybrid convex", color: "pill-hybrid-blue", endpoint: "hybrid", body: hybrid },
+      { name: "Reranked hybrid", color: "pill-dense-purple", endpoint: "rerank", body: { ...hybrid, initial_k: 10 } },
+      { name: "BM25", color: "pill-bm25-amber", endpoint: "bm25", body: base },
+    ].map((strategy) => ({ ...strategy, status: "Searching…" }));
 
-    if (studioSearchBtn) {
-      studioSearchBtn.disabled = true;
-      studioSearchBtn.innerHTML = `<span>Searching...</span>`;
-    }
-
+    studioPending = true;
+    studioSearchBtn.disabled = true;
+    studioSearchBtn.textContent = "Searching…";
+    if (chunkModal) chunkModal.style.display = "none";
+    renderStudioTable(strategies);
     try {
-      const [denseRes, bm25Res, hybridRes, rerankRes] = await Promise.all([
-        fetch("/api/search/dense", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, k: 3, filter }),
-        }).then((r) => r.json()).catch(() => ({ results: [], timing: { total_ms: 2.8 } })),
-
-        fetch("/api/search/bm25", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, k: 3, filter }),
-        }).then((r) => r.json()).catch(() => ({ results: [], timing: { search_ms: 1.9 } })),
-
-        fetch("/api/search/hybrid", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, k: 3, fusion_method: fusionMode, alpha, filter }),
-        }).then((r) => r.json()).catch(() => ({ results: [], timing: { total_ms: 4.1 } })),
-
-        fetch("/api/search/rerank", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query, k: 3, initial_k: 10, fusion_method: fusionMode, alpha, filter }),
-        }).then((r) => r.json()).catch(() => ({ results: [], timing: { total_ms: 3.4 } })),
-      ]);
-
-      renderStudioTable([
-        {
-          strategy: "Dense vector",
-          badgeClass: "badge-green",
-          pillClass: "pill-dense-green",
-          results: denseRes.results || [],
-          latency: denseRes.timing?.total_ms || 2.8,
-          defaultName: "hnsw_search.py",
-        },
-        {
-          strategy: "Hybrid RRF",
-          badgeClass: "badge-blue",
-          pillClass: "pill-hybrid-blue",
-          results: hybridRes.results || [],
-          latency: hybridRes.timing?.total_ms || 4.1,
-          defaultName: "index_builder.py",
-        },
-        {
-          strategy: "Dense vector",
-          badgeClass: "badge-purple",
-          pillClass: "pill-dense-purple",
-          results: rerankRes.results || [],
-          latency: rerankRes.timing?.total_ms || 3.4,
-          defaultName: "pq_encoder.py",
-        },
-        {
-          strategy: "BM25",
-          badgeClass: "badge-amber",
-          pillClass: "pill-bm25-amber",
-          results: bm25Res.results || [],
-          latency: bm25Res.timing?.search_ms || 1.9,
-          defaultName: "bm25.py",
-        },
-      ]);
-    } catch (e) {
-      console.warn("Studio search error:", e);
+      await Promise.all(strategies.map(async (strategy) => {
+        try {
+          const response = await fetch(`/api/search/${strategy.endpoint}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(30000),
+            body: JSON.stringify(strategy.body),
+          });
+          if (!response.ok) {
+            strategy.status = `Search failed (HTTP ${response.status})`;
+            return;
+          }
+          const data = await response.json();
+          if (!Array.isArray(data?.results) ||
+              (data.results.length && !data.results[0]?.id)) {
+            strategy.status = "Invalid search response";
+            return;
+          }
+          strategy.result = data.results[0];
+          strategy.latency = data.timing?.total_ms ?? data.timing?.search_ms;
+          strategy.status = "No matching passages";
+        } catch (error) {
+          strategy.status = error.name === "TimeoutError" ? "Search timed out" : "Search unavailable";
+        } finally {
+          renderStudioTable(strategies);
+        }
+      }));
     } finally {
-      if (studioSearchBtn) {
-        studioSearchBtn.disabled = false;
-        studioSearchBtn.innerHTML = `<span>Search</span>`;
-      }
+      studioPending = false;
+      studioSearchBtn.disabled = false;
+      studioSearchBtn.textContent = "Search";
     }
   }
 
@@ -536,7 +510,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (chunkModal) chunkModal.style.display = "none";
   });
 
-  window.openChunkInspector = function(title, strategy, meta, text, score, latency) {
+  function openChunkInspector(title, strategy, meta, text, score, latency) {
     if (!chunkModal) return;
     const stratEl = document.getElementById("chunk-modal-strategy");
     const titleEl = document.getElementById("chunk-modal-title");
@@ -547,103 +521,59 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (stratEl) stratEl.textContent = `STRATEGY: ${strategy.toUpperCase()}`;
     if (titleEl) titleEl.textContent = title;
-    if (metaEl) metaEl.textContent = meta || "Path: VectorCore / core / indexing";
-    if (textEl) textEl.textContent = text || "Detailed chunk representation from vector index.";
+    if (metaEl) metaEl.textContent = meta;
+    if (textEl) textEl.textContent = text || "This result did not include passage text.";
     if (scoreEl) scoreEl.textContent = score;
-    if (latEl) latEl.textContent = `${latency} ms`;
+    if (latEl) latEl.textContent = latency;
     chunkModal.style.display = "flex";
-  };
-
-  // Bind initial static Search Studio rows so clicking opens the Chunk Inspector modal
-  function bindInitialStudioRows() {
-    document.querySelectorAll(".studio-table-row").forEach((row) => {
-      row.style.cursor = "pointer";
-      row.addEventListener("click", () => {
-        const fileName = row.querySelector(".file-name")?.textContent || "Document";
-        const filePath = row.querySelector(".file-path")?.textContent || "VectorCore / core / indexing";
-        const strategy = row.querySelector(".strategy-pill")?.textContent || "Dense vector";
-        const score = row.querySelector(".row-cell-score")?.textContent || "0.942";
-        const latency = row.querySelector(".row-cell-latency")?.textContent || "2.8 ms";
-        const sampleTexts = {
-          "hnsw_search.py": "Hierarchical Navigable Small World graph traversal: constructs layered proximity graphs where higher layers have long-range skip edges for logarithmic greedy routing.",
-          "index_builder.py": "Index Builder pipeline: generates embeddings from semantic text chunks, normalizes vectors to unit L2 sphere, and constructs HNSW multi-layer connectivity graph.",
-          "pq_encoder.py": "Product Quantizer (PQ): decomposes high-dimensional space into M orthogonal sub-vectors and encodes centroids into 8-bit codebook indices for fast ADC lookup.",
-          "bm25.py": "BM25 Probabilistic Ranking: tokenizes terms with IDF calculation, applying length normalization parameter b=0.75 and term frequency saturation k1=1.5."
-        };
-        window.openChunkInspector(
-          fileName,
-          strategy,
-          filePath,
-          sampleTexts[fileName] || "Vector database document chunk excerpt.",
-          score,
-          latency.replace(" ms", "")
-        );
-      });
-    });
   }
-  bindInitialStudioRows();
 
   function renderStudioTable(strategies) {
-    const tableBody = document.getElementById("studio-table-rows");
-    if (!tableBody) return;
-
-    let rowsHtml = "";
-    const rowDetails = [];
-    strategies.forEach((st) => {
-      const topResult = st.results && st.results.length > 0 ? st.results[0] : null;
-      const title = topResult
-        ? topResult.metadata?.title || topResult.metadata?.source || topResult.id || st.defaultName
-        : st.defaultName;
-      const score = topResult ? (topResult.rerank_score || topResult.score || 0.942).toFixed(3) : "0.942";
-      const snippet = topResult ? topResult.text || topResult.metadata?.text || "" : "";
-      rowDetails.push({ title, strategy: st.strategy, snippet: snippet || "Vector document chunk excerpt.", score, latency: st.latency });
-
-      rowsHtml += `
-        <div class="studio-table-row" style="cursor:pointer;">
-          <div class="row-cell-result">
-            <div class="file-icon-badge ${st.badgeClass}">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                <polyline points="14 2 14 8 20 8"></polyline>
-                <line x1="16" y1="13" x2="8" y2="13"></line>
-                <line x1="16" y1="17" x2="8" y2="17"></line>
-              </svg>
-            </div>
-            <div class="file-details">
-              <span class="file-name">${escapeHtml(title)}</span>
-              <span class="file-path">VectorCore / core / indexing</span>
-            </div>
-          </div>
-
-          <div class="row-cell-strategy">
-            <span class="strategy-pill ${st.pillClass}">${st.strategy}</span>
-          </div>
-
-          <div class="row-cell-score">${score}</div>
-          <div class="row-cell-latency">${st.latency} ms</div>
-
-          <div class="row-cell-action">
-            <button class="open-link-btn" title="Inspect Chunk">
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <line x1="7" y1="17" x2="17" y2="7"></line>
-                <polyline points="7 7 17 7 17 17"></polyline>
-              </svg>
-            </button>
-          </div>
-        </div>
-      `;
+    const table = document.getElementById("studio-table-rows");
+    const details = strategies.map((strategy) => {
+      const result = strategy.result;
+      const metadata = result?.metadata;
+      const title = metadata?.title || metadata?.source || result?.id;
+      const page = metadata?.page ?? metadata?.metadata?.page;
+      const provenance = [
+        metadata?.source, Number.isInteger(page) ? `Page ${page}` : null,
+      ].filter(Boolean).join(" · ");
+      const value = result?.rerank_score ?? result?.score;
+      return {
+        title,
+        provenance,
+        snippet: result?.text ?? metadata?.text,
+        score: Number.isFinite(value) ? value.toFixed(3) : "—",
+        latency: Number.isFinite(strategy.latency) ? `${strategy.latency} ms` : "—",
+      };
     });
 
-    tableBody.innerHTML = rowsHtml;
-    tableBody.querySelectorAll(".studio-table-row").forEach((row, index) => {
-      const detail = rowDetails[index];
-      row.addEventListener("click", () => window.openChunkInspector(
-        detail.title,
-        detail.strategy,
-        "VectorCore / core / indexing",
-        detail.snippet,
-        detail.score,
-        detail.latency,
+    table.innerHTML = strategies.map((strategy, index) => {
+      const detail = details[index];
+      return `
+        <div class="studio-table-row">
+          <div class="row-cell-result">
+            <div class="file-details">
+              <span class="file-name">${escapeHtml(detail.title ?? strategy.status)}</span>
+              ${detail.provenance ? `<span class="file-path">${escapeHtml(detail.provenance)}</span>` : ""}
+            </div>
+          </div>
+          <div class="row-cell-strategy">
+            <span class="strategy-pill ${strategy.color}">${strategy.name}</span>
+          </div>
+          <div class="row-cell-score">${detail.score}</div>
+          <div class="row-cell-latency">${detail.latency}</div>
+          <div class="row-cell-action">
+            ${strategy.result ? '<button type="button" class="open-link-btn" aria-label="Inspect passage" title="Inspect passage">↗</button>' : ""}
+          </div>
+        </div>`;
+    }).join("");
+
+    table.querySelectorAll(".studio-table-row").forEach((row, index) => {
+      const detail = details[index];
+      row.querySelector(".open-link-btn")?.addEventListener("click", () => openChunkInspector(
+        detail.title, strategies[index].name, detail.provenance, detail.snippet,
+        detail.score, detail.latency,
       ));
     });
   }
