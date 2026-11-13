@@ -109,7 +109,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
       const activeTab = document.querySelector(".nav-item.active")?.getAttribute("data-tab");
       if (activeTab === "rag-playground") {
-        document.getElementById("rag-form")?.dispatchEvent(new Event("submit"));
+        document.getElementById("rag-form")?.requestSubmit();
       } else if (activeTab === "search-studio") {
         document.getElementById("btn-studio-search")?.click();
       }
@@ -218,9 +218,49 @@ document.addEventListener("DOMContentLoaded", () => {
   const latencySummaryBadge = document.getElementById("latency-summary-badge");
   const citationsListBody = document.getElementById("citations-list-body");
   const citationsCount = document.getElementById("citations-count");
+  let ragPending = false;
+
+  function resetRAGResponse(evidenceMessage) {
+    answerHeaderBar.style.display = "none";
+    ragLatencyBreakdown.style.display = "none";
+    citationsCount.textContent = "0";
+    const message = document.createElement("p");
+    message.className = "grounded-placeholder";
+    message.textContent = evidenceMessage;
+    citationsListBody.replaceChildren(message);
+  }
+
+  async function readRAGResponse(response) {
+    const body = await response.text();
+    let data;
+    try {
+      data = JSON.parse(body);
+    } catch {
+      // A proxy can return an empty body or an HTML error page.
+    }
+    if (!response.ok) {
+      if ([502, 503, 504].includes(response.status)) {
+        throw new Error("The server is temporarily unavailable or still starting. Please try again shortly.");
+      }
+      if (response.status >= 500) {
+        throw new Error("The server could not generate an answer. Please try again.");
+      }
+      throw new Error(typeof data?.detail === "string"
+        ? data.detail
+        : `The request was rejected (HTTP ${response.status}). Check your question and try again.`);
+    }
+    if (typeof data?.answer !== "string" || !data.answer.trim() ||
+        !Array.isArray(data.citations) || !data.citations.every((citation) =>
+          citation && Number.isInteger(citation.citation_number) &&
+          Number.isFinite(citation.relevance_score))) {
+      throw new Error("The server returned an incomplete answer. Please try again.");
+    }
+    return data;
+  }
 
   ragForm?.addEventListener("submit", async (e) => {
     e.preventDefault();
+    if (ragPending) return;
     const query = document.getElementById("rag-query-input").value.trim();
     if (!query) return;
 
@@ -228,6 +268,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const useRerank = document.getElementById("rag-toggle-rerank")?.checked ?? true;
     const topK = parseInt(document.getElementById("rag-topk-select")?.value || "5", 10);
 
+    ragPending = true;
+    ragForm.setAttribute("aria-busy", "true");
+    const presetButtons = ragForm.parentElement.querySelectorAll(".preset-chip");
+    presetButtons.forEach((button) => { button.disabled = true; });
+    resetRAGResponse("Retrieving sources…");
     ragSubmitBtn.disabled = true;
     ragSubmitBtn.innerHTML = `<span>Thinking...</span>`;
     ragAnswerText.innerHTML = `
@@ -239,8 +284,7 @@ document.addEventListener("DOMContentLoaded", () => {
             <line x1="2" y1="12" x2="6" y2="12"></line><line x1="18" y1="12" x2="22" y2="12"></line>
           </svg>
         </div>
-        <h4 class="placeholder-title">Retrieving & Synthesizing Grounded Answer</h4>
-        <p class="placeholder-desc">Traversing HNSW layers, gathering evidence, and cross-encoder reranking...</p>
+        <h4 class="placeholder-title">Retrieving evidence and preparing an answer</h4>
       </div>
     `;
 
@@ -248,6 +292,7 @@ document.addEventListener("DOMContentLoaded", () => {
       const res = await fetch("/api/rag/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(60000),
         body: JSON.stringify({
           query: query,
           top_k: topK,
@@ -256,12 +301,22 @@ document.addEventListener("DOMContentLoaded", () => {
         }),
       });
 
-      const data = await res.json();
+      const data = await readRAGResponse(res);
       renderRAGResponse(data);
       refreshSystemStatus();
     } catch (err) {
-      ragAnswerText.innerHTML = `<div class="grounded-placeholder" style="color: var(--accent-rose);"><p>Error: ${escapeHtml(err.message)}</p></div>`;
+      resetRAGResponse("Sources will appear after a successful request.");
+      let message = err.message;
+      if (err.name === "TimeoutError") {
+        message = "The request took too long. Please try again.";
+      } else if (err instanceof TypeError) {
+        message = "Could not reach the server. Check your connection and try again.";
+      }
+      ragAnswerText.innerHTML = `<div class="grounded-placeholder" role="alert"><h4 class="placeholder-title">Couldn’t generate an answer</h4><p class="placeholder-desc">${escapeHtml(message)}</p></div>`;
     } finally {
+      ragPending = false;
+      ragForm.removeAttribute("aria-busy");
+      presetButtons.forEach((button) => { button.disabled = false; });
       ragSubmitBtn.disabled = false;
       ragSubmitBtn.innerHTML = `
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
@@ -323,7 +378,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
               <polyline points="14 2 14 8 20 8"></polyline>
             </svg>
-            <span>paper &bull; 384 tokens</span>
+            <span>${Number.isInteger(c.page) ? `Page ${c.page}` : "Retrieved passage"}</span>
           </div>
           <p class="evidence-snippet">${escapeHtml(c.snippet || "")}</p>
         `;

@@ -6,10 +6,11 @@ Exposes REST endpoints for indexing, chunking, hybrid search, reranking, RAG, qu
 import os
 import time
 import hashlib
+import logging
 import tempfile
 from threading import RLock
 from typing import List, Dict, Any, Optional, Literal
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +61,17 @@ app.add_middleware(
 @app.exception_handler(InvalidMetadataFilter)
 async def invalid_filter_response(request, exc):
     return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
+@app.middleware("http")
+async def rag_error_response(request: Request, call_next):
+    if request.url.path != "/api/rag/ask":
+        return await call_next(request)
+    try:
+        return await call_next(request)
+    except Exception:
+        logging.getLogger(__name__).exception("RAG request failed")
+        return JSONResponse(status_code=500, content={"detail": "Could not generate an answer."})
 
 
 # Global State Container

@@ -2,10 +2,13 @@
 Unit tests for RAG generation, Citation Engine, LRU Cache, and Evaluation Metrics.
 """
 
+from unittest.mock import patch
+
 from vectordb.rag.cache import LRUQueryCache
 from vectordb.rag.citation import CitationEngine
 from vectordb.rag.generator import RAGGenerator
 from vectordb.evaluation.metrics import recall_at_k, reciprocal_rank, evaluate_retrieval_system
+from vectordb.retrieval.reranker import CrossEncoderReranker
 
 
 def test_lru_cache():
@@ -53,6 +56,33 @@ def test_rag_extractive_generator():
     assert "[1]" in res["answer"]
     assert len(res["citations"]) == 1
     assert res["citations"][0]["source"] == "doc_bm25.pdf"
+
+
+def test_empty_or_invalid_provider_output_uses_extractive_answer():
+    generator = RAGGenerator(openai_api_key="test")
+    chunks = [{"text": "BM25 uses document length normalization."}]
+    for invalid_answer in ["   ", {"unexpected": "response"}]:
+        with patch.object(generator, "_generate_openai", return_value=invalid_answer):
+            result = generator.generate_answer("What does BM25 use?", chunks, provider="openai")
+        assert result["engine"] == "smart_extractive_synthesizer"
+        assert "[1]" in result["answer"]
+
+
+def test_reranker_recovers_from_inference_failure_or_nonfinite_scores():
+    reranker = CrossEncoderReranker(device="cpu")
+    candidates = [{"id": "a", "text": "falcon guide"}, {"id": "b", "text": "other"}]
+
+    class Model:
+        def predict(self, *args, **kwargs):
+            if self.fail:
+                raise RuntimeError("inference failed")
+            return [float("nan"), 1]
+
+    model = Model()
+    with patch.object(reranker, "_get_model", return_value=model):
+        for fail in [True, False]:
+            model.fail = fail
+            assert reranker.rerank("falcon", candidates, top_k=1)[0]["id"] == "a"
 
 
 def test_evaluation_metrics():

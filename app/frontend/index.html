@@ -276,14 +276,6 @@
                     </select>
                   </div>
 
-                  <div class="option-pill-group">
-                    <span class="option-label">Model</span>
-                    <select id="rag-model-select" class="clean-select">
-                      <option value="minilm" selected>MiniLM-L6</option>
-                      <option value="bge">BGE-Small</option>
-                      <option value="custom">Custom DB</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             </form>
@@ -320,7 +312,7 @@
               </div>
 
               <!-- Answer Body / Placeholder -->
-              <div class="answer-inner-body" id="rag-answer-text">
+              <div class="answer-inner-body" id="rag-answer-text" aria-live="polite">
                 <div class="grounded-placeholder">
                   <div class="placeholder-knot-circle">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -382,62 +374,13 @@
                   <span class="card-micro-label">RETRIEVED EVIDENCE</span>
                   <div class="sources-title-row">
                     <h3 class="sources-heading">Sources</h3>
-                    <span class="sources-count-pill" id="citations-count">3</span>
+                    <span class="sources-count-pill" id="citations-count">0</span>
                   </div>
                 </div>
               </div>
 
               <div class="evidence-list" id="citations-list-body">
-                <!-- Default Evidence Source 1 -->
-                <div class="evidence-item" id="cite-item-1">
-                  <div class="evidence-item-top">
-                    <span class="evidence-index">01</span>
-                    <span class="evidence-score">0.94</span>
-                  </div>
-                  <h4 class="evidence-title">HNSW: Efficient and robust approximate nearest neighbor search</h4>
-                  <div class="evidence-meta">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                    </svg>
-                    <span>paper &bull; 384 tokens</span>
-                  </div>
-                  <p class="evidence-snippet">The graph is organized into multiple layers, where each layer contains a subset of the nodes from the layer below. Greedy routing traverses upper express layers with large hops before descending to base layers.</p>
-                </div>
-
-                <!-- Default Evidence Source 2 -->
-                <div class="evidence-item" id="cite-item-2">
-                  <div class="evidence-item-top">
-                    <span class="evidence-index">02</span>
-                    <span class="evidence-score">0.89</span>
-                  </div>
-                  <h4 class="evidence-title">Product quantization for nearest neighbor search</h4>
-                  <div class="evidence-meta">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                    </svg>
-                    <span>paper &bull; 384 tokens</span>
-                  </div>
-                  <p class="evidence-snippet">Product quantization decomposes the high-dimensional vector space into a Cartesian product of low-dimensional orthogonal subspaces, quantizing each independently with ADC lookup tables.</p>
-                </div>
-
-                <!-- Default Evidence Source 3 -->
-                <div class="evidence-item" id="cite-item-3">
-                  <div class="evidence-item-top">
-                    <span class="evidence-index">03</span>
-                    <span class="evidence-score">0.85</span>
-                  </div>
-                  <h4 class="evidence-title">FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness</h4>
-                  <div class="evidence-meta">
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                      <polyline points="14 2 14 8 20 8"></polyline>
-                    </svg>
-                    <span>paper &bull; 384 tokens</span>
-                  </div>
-                  <p class="evidence-snippet">By tiling the attention matrix into blocks and performing online softmax scaling, FlashAttention minimizes HBM reads and writes, achieving substantial memory reductions.</p>
-                </div>
+                <p class="grounded-placeholder">Sources will appear after you ask a question.</p>
               </div>
             </div>
           </div>
@@ -1064,6 +1007,6 @@
     </div>
   </div>
 
-  <script src="js/app.js?v=4.2"></script>
+  <script src="js/app.js?v=4.3"></script>
 </body>
 </html>

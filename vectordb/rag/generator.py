@@ -5,7 +5,7 @@ Responses include chunk citation metadata; citation presence does not prove fact
 
 import os
 import re
-import json
+import logging
 import time
 import requests
 from typing import List, Dict, Any, Optional, Tuple
@@ -68,12 +68,12 @@ class RAGGenerator:
             "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024},
         }
         try:
-            resp = requests.post(url, json=payload, timeout=15)
+            resp = requests.post(url, json=payload, timeout=(3, 10))
             if resp.status_code == 200:
                 data = resp.json()
                 return data["candidates"][0]["content"]["parts"][0]["text"]
         except Exception as e:
-            print(f"[RAGGenerator] Gemini call failed: {e}")
+            logging.getLogger(__name__).warning("Gemini generation failed (%s)", type(e).__name__)
         return None
 
     def _generate_openai(self, prompt: str) -> Optional[str]:
@@ -94,12 +94,12 @@ class RAGGenerator:
             "temperature": 0.2,
         }
         try:
-            resp = requests.post(url, headers=headers, json=payload, timeout=15)
+            resp = requests.post(url, headers=headers, json=payload, timeout=(3, 10))
             if resp.status_code == 200:
                 data = resp.json()
                 return data["choices"][0]["message"]["content"]
         except Exception as e:
-            print(f"[RAGGenerator] OpenAI call failed: {e}")
+            logging.getLogger(__name__).warning("OpenAI generation failed (%s)", type(e).__name__)
         return None
 
     def _generate_ollama(self, prompt: str, model: str = "llama3.2") -> Optional[str]:
@@ -111,11 +111,11 @@ class RAGGenerator:
             "stream": False,
         }
         try:
-            resp = requests.post(url, json=payload, timeout=20)
+            resp = requests.post(url, json=payload, timeout=(2, 10))
             if resp.status_code == 200:
                 return resp.json().get("response")
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger(__name__).debug("Ollama generation failed (%s)", type(e).__name__)
         return None
 
     def _smart_extractive_synthesizer(
@@ -211,26 +211,26 @@ class RAGGenerator:
             }
 
         start_time = time.time()
-        prompt = build_rag_prompt(query, context_chunks)
         active_provider = provider or self.preferred_provider
+        prompt = build_rag_prompt(query, context_chunks) if active_provider != "smart_extractive" else ""
         response_text = None
         used_engine = "smart_extractive"
 
         if active_provider in ["auto", "gemini"] and self.gemini_api_key:
             res = self._generate_gemini(prompt)
-            if res:
+            if isinstance(res, str) and res.strip():
                 response_text = res
                 used_engine = "gemini-1.5-flash"
 
         if response_text is None and (active_provider in ["auto", "openai"] and self.openai_api_key):
             res = self._generate_openai(prompt)
-            if res:
+            if isinstance(res, str) and res.strip():
                 response_text = res
                 used_engine = "gpt-4o-mini"
 
         if response_text is None and (active_provider in ["auto", "ollama"]):
             res = self._generate_ollama(prompt)
-            if res:
+            if isinstance(res, str) and res.strip():
                 response_text = res
                 used_engine = "ollama"
 

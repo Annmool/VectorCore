@@ -4,6 +4,7 @@ Re-scores and re-ranks top retrieval candidates using full query-document cross-
 """
 
 from typing import List, Dict, Any, Optional
+import logging
 import numpy as np
 
 
@@ -90,13 +91,25 @@ class CrossEncoderReranker:
             text = c.get("text") or c.get("metadata", {}).get("text", "") or ""
             doc_texts.append(text)
 
+        if model != "fallback":
+            pairs = [[query, text] for text in doc_texts]
+            try:
+                raw_scores = np.asarray(
+                    model.predict(pairs, batch_size=self.batch_size, show_progress_bar=False),
+                    dtype=np.float32,
+                )
+                if raw_scores.shape != (len(candidates),) or not np.isfinite(raw_scores).all():
+                    raise ValueError("Unexpected cross-encoder scores")
+                norm_scores = self._sigmoid(raw_scores)
+            except Exception:
+                logging.getLogger(__name__).warning(
+                    "Cross-encoder prediction failed. Using lexical reranking.", exc_info=True
+                )
+                model = "fallback"
+
         if model == "fallback":
             raw_scores = self._fallback_rerank(query, doc_texts)
             norm_scores = self._sigmoid(raw_scores * 2.0 - 1.0)
-        else:
-            pairs = [[query, text] for text in doc_texts]
-            raw_scores = model.predict(pairs, batch_size=self.batch_size, show_progress_bar=False)
-            norm_scores = self._sigmoid(np.asarray(raw_scores, dtype=np.float32))
 
         # Attach rerank score and original rank
         reranked = []
