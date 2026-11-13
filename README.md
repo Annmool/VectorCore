@@ -162,6 +162,10 @@ python run_server.py
 ```
 Open **`http://localhost:8000`** in your browser. API docs available at **`http://localhost:8000/docs`**.
 
+The local server and Compose port default to loopback. The API is designed for a trusted local demo and has no authentication. Keep administrative endpoints and private documents off shared deployments.
+
+Collection saves publish one validated `snapshot.npz` using an atomic file replacement. The loader can read complete legacy snapshots and rebuilds the index from active rows. Library callers explicitly call `save()` to persist inserts and deletes.
+
 ### 3. Run Automated Tests
 ```bash
 python -m pytest -v
@@ -179,7 +183,7 @@ docker compose up -d --build
 ### Build & Run Container Directly
 ```bash
 docker build -t vectorcore .
-docker run -p 8000:8000 -v ./data:/app/data vectorcore
+docker run -p 127.0.0.1:8000:8000 -v ./data:/app/data vectorcore
 ```
 
 ---

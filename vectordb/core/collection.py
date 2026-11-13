@@ -5,7 +5,6 @@ High-level Collection abstraction managing Vector Indexes, Metadata Filtering, a
 import threading
 from typing import List, Dict, Any, Optional, Callable, Union, Literal
 import numpy as np
-import os
 from vectordb.core.distance import MetricType
 from vectordb.core.flat_index import FlatIndex
 from vectordb.core.ivf_index import IVFIndex
@@ -16,63 +15,68 @@ from vectordb.core.storage import StorageEngine
 IndexType = Literal["flat", "ivf", "hnsw"]
 
 
+class InvalidMetadataFilter(ValueError):
+    """The client supplied an unsupported filter expression."""
+
+
 def compile_metadata_filter(query_filter: Optional[Dict[str, Any]]) -> Optional[Callable[[Dict[str, Any]], bool]]:
-    """
-    Compile a Mongo-style metadata filter dictionary into a fast evaluation function.
-    Supports:
-    - Exact equality: `{"author": "Vaswani"}`
-    - Operators: `$eq`, `$ne`, `$gt`, `$gte`, `$lt`, `$lte`, `$in`, `$nin`
-    - Logical operators: `$and`, `$or`, `$not`
-    """
-    if not query_filter:
+    """Validate once, then evaluate against each candidate's metadata."""
+    if query_filter is None or query_filter == {}:
         return None
 
-    def evaluate_predicate(val: Any, cond: Any) -> bool:
-        if isinstance(cond, dict):
-            for op, target in cond.items():
-                if op == "$eq" and val != target:
-                    return False
-                elif op == "$ne" and val == target:
-                    return False
-                elif op == "$gt" and not (val > target):
-                    return False
-                elif op == "$gte" and not (val >= target):
-                    return False
-                elif op == "$lt" and not (val < target):
-                    return False
-                elif op == "$lte" and not (val <= target):
-                    return False
-                elif op == "$in" and val not in target:
-                    return False
-                elif op == "$nin" and val in target:
-                    return False
-            return True
-        else:
-            return val == cond
+    from operator import eq, ge, gt, le, lt, ne
 
-    def filter_func(meta: Dict[str, Any]) -> bool:
-        if not meta:
-            return False
+    comparisons = {"$eq": eq, "$ne": ne, "$gt": gt, "$gte": ge, "$lt": lt, "$lte": le}
 
-        for k, v in query_filter.items():
-            if k == "$and":
-                if not all(compile_metadata_filter(sub_f)(meta) for sub_f in v):
-                    return False
-            elif k == "$or":
-                if not any(compile_metadata_filter(sub_f)(meta) for sub_f in v):
-                    return False
-            elif k == "$not":
-                if compile_metadata_filter(v)(meta):
-                    return False
+    def compile_expression(expression):
+        if not isinstance(expression, dict) or not expression:
+            raise InvalidMetadataFilter("Expected a nonempty filter object.")
+        predicates = []
+        for field, condition in expression.items():
+            if field in {"$and", "$or"}:
+                if not isinstance(condition, list) or not condition:
+                    raise InvalidMetadataFilter(f"{field} requires a nonempty list.")
+                children = [compile_expression(child) for child in condition]
+                aggregate = all if field == "$and" else any
+                predicates.append(lambda meta, children=children, aggregate=aggregate:
+                                  aggregate(child(meta) for child in children))
+            elif field == "$not":
+                child = compile_expression(condition)
+                predicates.append(lambda meta, child=child: not child(meta))
+            elif field.startswith("$"):
+                raise InvalidMetadataFilter(f"Unknown logical operator {field}.")
             else:
-                field_val = meta.get(k)
-                if field_val is None:
+                checks = condition if isinstance(condition, dict) else {"$eq": condition}
+                if not checks:
+                    raise InvalidMetadataFilter(f"Empty predicate for {field}.")
+                for op, target in checks.items():
+                    if op in {"$in", "$nin"}:
+                        if not isinstance(target, list):
+                            raise InvalidMetadataFilter(f"{op} requires a list.")
+                    elif op not in comparisons:
+                        raise InvalidMetadataFilter(f"Unknown comparison operator {op}.")
+                predicates.append(lambda meta, field=field, checks=checks:
+                                  matches(meta.get(field), checks))
+        return lambda meta: bool(meta) and all(predicate(meta) for predicate in predicates)
+
+    def matches(value, checks):
+        if value is None:
+            return False
+        try:
+            for op, target in checks.items():
+                if op == "$in":
+                    passed = value in target
+                elif op == "$nin":
+                    passed = value not in target
+                else:
+                    passed = comparisons[op](value, target)
+                if not passed:
                     return False
-                if not evaluate_predicate(field_val, v):
-                    return False
+        except TypeError:
+            return False
         return True
 
-    return filter_func
+    return compile_expression(query_filter)
 
 
 class Collection:
@@ -252,6 +256,16 @@ class Collection:
                 "reconstruction_mse": mse,
             }
 
+    def active_rows(self):
+        """Copy the active row set while holding the collection lock."""
+        with self._lock:
+            active = [i for i, deleted in enumerate(self.index.is_deleted) if not deleted]
+            return (
+                [self.index.ids[i] for i in active],
+                self.index.vectors[active],
+                [self.index.metadata[i] for i in active],
+            )
+
     def save(self) -> str:
         """Persist collection to disk."""
         with self._lock:
@@ -304,9 +318,10 @@ class Collection:
             ivf_nlist=config.get("ivf_nlist", 16),
             ivf_nprobe=config.get("ivf_nprobe", 4),
         )
-        coll.insert_batch(ids, vectors, metadatas)
-        # Restore tombstone states
-        coll.index.is_deleted = deleted_mask
+        active = [i for i, deleted in enumerate(deleted_mask) if not deleted]
+        if active:
+            coll.index.add_batch([ids[i] for i in active], vectors[active],
+                                 [metadatas[i] for i in active])
         return coll
 
     def get_stats(self) -> Dict[str, Any]:

@@ -7,6 +7,7 @@ Searches only the top-nprobe nearest clusters for fast approximate retrieval.
 from typing import List, Dict, Any, Tuple, Optional, Callable
 import numpy as np
 from vectordb.core.distance import compute_distance, MetricType, distance_to_score
+from vectordb.core.distance import validate_batch, validate_vectors
 
 
 class IVFIndex:
@@ -62,8 +63,10 @@ class IVFIndex:
                 np.sum((data[:, np.newaxis, :] - np.array(centroids)) ** 2, axis=-1),
                 axis=-1,
             )
-            probs = dists_sq / (np.sum(dists_sq) + 1e-10)
-            next_idx = np.random.choice(n_samples, p=probs)
+            mass = np.sum(dists_sq, dtype=np.float64)
+            if mass == 0:
+                break
+            next_idx = np.random.choice(n_samples, p=dists_sq.astype(np.float64) / mass)
             centroids.append(data[next_idx])
 
         # Fill up if k < self.nlist
@@ -102,6 +105,15 @@ class IVFIndex:
         self.is_trained = True
         return self
 
+    def _train_and_reassign(self, data):
+        self.train(data)
+        self.inverted_lists = {i: [] for i in range(self.nlist)}
+        for idx, vector in enumerate(self.vectors):
+            if not self.is_deleted[idx]:
+                cluster = self._assign_cluster(vector)
+                self.cluster_assignments[idx] = cluster
+                self.inverted_lists[cluster].append(idx)
+
     def _assign_cluster(self, vector: np.ndarray) -> int:
         """Find the nearest centroid for a vector."""
         if not self.is_trained or self.centroids is None:
@@ -111,20 +123,13 @@ class IVFIndex:
 
     def add(self, id: str, vector: np.ndarray, meta: Optional[Dict[str, Any]] = None) -> int:
         """Add a single vector to the IVF index."""
-        vector = np.asarray(vector, dtype=np.float32).flatten()
+        vector = validate_vectors(vector, self.dim, self.metric, ndim=1)
 
         if not self.is_trained:
             # Auto-bootstrap training if empty
             if len(self.vectors) + 1 >= self.nlist:
                 training_data = np.vstack([self.vectors, vector.reshape(1, -1)])
-                self.train(training_data)
-                # Re-assign existing
-                self.inverted_lists = {i: [] for i in range(self.nlist)}
-                for i in range(len(self.ids)):
-                    if not self.is_deleted[i]:
-                        c_id = self._assign_cluster(self.vectors[i])
-                        self.cluster_assignments[i] = c_id
-                        self.inverted_lists[c_id].append(i)
+                self._train_and_reassign(training_data)
 
         idx = len(self.ids)
         if id in self.id_to_idx:
@@ -163,13 +168,15 @@ class IVFIndex:
         metadatas: Optional[List[Dict[str, Any]]] = None,
     ) -> List[int]:
         """Add batch of vectors, training centroids if necessary."""
-        vectors = np.asarray(vectors, dtype=np.float32)
+        vectors = validate_batch(ids, vectors, metadatas, self.dim, self.metric)
+        if not len(ids):
+            return []
         if metadatas is None:
             metadatas = [{} for _ in range(len(ids))]
 
         if not self.is_trained:
             all_vecs = vectors if len(self.vectors) == 0 else np.vstack([self.vectors, vectors])
-            self.train(all_vecs)
+            self._train_and_reassign(all_vecs)
 
         indices = []
         for doc_id, vec, meta in zip(ids, vectors, metadatas):
@@ -202,7 +209,7 @@ class IVFIndex:
         if len(self.ids) == 0:
             return []
 
-        query = np.asarray(query, dtype=np.float32).flatten()
+        query = validate_vectors(query, self.dim, self.metric, ndim=1)
         actual_nprobe = nprobe if nprobe is not None else self.nprobe
         actual_nprobe = max(1, min(actual_nprobe, self.nlist))
 

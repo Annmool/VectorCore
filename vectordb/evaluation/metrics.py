@@ -12,7 +12,7 @@ def recall_at_k(retrieved_ids: List[str], ground_truth_ids: Set[str], k: int) ->
     """Compute Recall@K: proportion of relevant documents retrieved in top-k."""
     if not ground_truth_ids:
         return 1.0
-    top_k = retrieved_ids[:k]
+    top_k = list(dict.fromkeys(retrieved_ids))[:max(k, 0)]
     hits = sum(1 for doc_id in top_k if doc_id in ground_truth_ids)
     return hits / len(ground_truth_ids)
 
@@ -21,14 +21,14 @@ def precision_at_k(retrieved_ids: List[str], ground_truth_ids: Set[str], k: int)
     """Compute Precision@K: proportion of top-k retrieved documents that are relevant."""
     if k <= 0:
         return 0.0
-    top_k = retrieved_ids[:k]
+    top_k = list(dict.fromkeys(retrieved_ids))[:max(k, 0)]
     hits = sum(1 for doc_id in top_k if doc_id in ground_truth_ids)
     return hits / k
 
 
 def reciprocal_rank(retrieved_ids: List[str], ground_truth_ids: Set[str]) -> float:
     """Compute Reciprocal Rank: 1 / rank of first relevant retrieved item."""
-    for rank, doc_id in enumerate(retrieved_ids, 1):
+    for rank, doc_id in enumerate(dict.fromkeys(retrieved_ids), 1):
         if doc_id in ground_truth_ids:
             return 1.0 / rank
     return 0.0
@@ -39,9 +39,12 @@ def average_precision(retrieved_ids: List[str], ground_truth_ids: Set[str], k: i
     if not ground_truth_ids:
         return 1.0
 
+    if k <= 0:
+        return 0.0
+
     score = 0.0
     num_hits = 0
-    top_k = retrieved_ids[:k]
+    top_k = list(dict.fromkeys(retrieved_ids))[:max(k, 0)]
 
     for rank, doc_id in enumerate(top_k, 1):
         if doc_id in ground_truth_ids:
@@ -57,7 +60,7 @@ def ndcg_at_k(retrieved_ids: List[str], ground_truth_ids: Set[str], k: int) -> f
         return 1.0
 
     dcg = 0.0
-    top_k = retrieved_ids[:k]
+    top_k = list(dict.fromkeys(retrieved_ids))[:max(k, 0)]
     for rank, doc_id in enumerate(top_k, 1):
         rel = 1.0 if doc_id in ground_truth_ids else 0.0
         dcg += rel / math.log2(rank + 1)

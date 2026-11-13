@@ -7,14 +7,16 @@ import os
 import time
 import hashlib
 import tempfile
+from threading import RLock
 from typing import List, Dict, Any, Optional, Literal
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, model_validator
 import numpy as np
 
-from vectordb.core.collection import Collection
+from vectordb.core.collection import Collection, InvalidMetadataFilter, compile_metadata_filter
 from vectordb.core.storage import StorageEngine
 from vectordb.embeddings.embedder import Embedder
 from vectordb.ingestion.loader import DocumentLoader, Document
@@ -55,9 +57,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.exception_handler(InvalidMetadataFilter)
+async def invalid_filter_response(request, exc):
+    return JSONResponse(status_code=422, content={"detail": str(exc)})
+
+
 # Global State Container
 class SystemState:
     def __init__(self):
+        self.writer_lock = RLock()
         self.storage = StorageEngine(base_dir="./data/collections")
         self.embedder = Embedder()
         self.collection = Collection(
@@ -76,7 +84,6 @@ class SystemState:
         self.cache = LRUQueryCache(capacity=500)
         self.rag_generator = RAGGenerator()
         self.projector = EmbeddingProjector()
-        self.documents_metadata: List[Dict[str, Any]] = []
 
 state = SystemState()
 
@@ -182,21 +189,15 @@ def seed_knowledge_base(force: bool = False):
     if len(state.collection) > 0 and not force:
         return {"status": "already_seeded", "count": len(state.collection)}
 
+    collection = state.collection
     if force:
-        # Re-instantiate fresh collection & BM25
-        state.collection = Collection(
+        collection = Collection(
             name="ai_research_kb",
             dim=state.embedder.dim,
             index_type="hnsw",
             metric="cosine",
             storage_engine=state.storage,
-            hnsw_m=16,
-            hnsw_ef_construction=64,
-            hnsw_ef_search=32,
         )
-        state.bm25 = BM25Index()
-        state.hybrid_retriever.collection = state.collection
-        state.hybrid_retriever.bm25 = state.bm25
 
     chunker = SentenceBoundaryChunker(max_chunk_size=300, sentence_overlap=1)
 
@@ -211,10 +212,13 @@ def seed_knowledge_base(force: bool = False):
     chunk_metas = [c.to_dict() for c in all_chunks]
 
     embeddings = state.embedder.embed_texts(chunk_texts)
-    state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
-    rebuild_bm25_index()
-    state.collection.save()
-    state.cache.clear()
+    with state.writer_lock:
+        collection.index.add_batch(chunk_ids, embeddings, chunk_metas)
+        collection.save()
+        state.collection = collection
+        state.hybrid_retriever.collection = collection
+        rebuild_bm25_index()
+        state.cache.clear()
 
     return {"status": "seeded", "chunks_indexed": len(all_chunks), "documents": len(PAPERS_CORPUS)}
 
@@ -231,7 +235,8 @@ def startup_event():
             seed_knowledge_base(force=False)
         print(f"[VectorDB] Startup complete. Indexed {len(state.collection)} chunks.")
     except Exception as e:
-        print(f"[VectorDB] Startup notice: {e}")
+        print(f"[VectorDB] Startup failed: {e}")
+        raise
 
 
 @app.get("/api/status")
@@ -256,26 +261,22 @@ def seed_corpus_endpoint():
 def switch_index(req: SwitchIndexRequest):
     """Dynamically switch index between Flat, IVF, and HNSW."""
     # Rebuild new index with current vectors
-    old_ids = state.collection.index.ids
-    old_vecs = state.collection.index.vectors
-    old_metas = state.collection.index.metadata
-    old_del = state.collection.index.is_deleted
-
-    new_coll = Collection(
-        name=state.collection.name,
-        dim=state.collection.dim,
-        index_type=req.index_type,
-        metric=state.collection.metric,
-        storage_engine=state.storage,
-    )
-    if len(old_ids) > 0:
-        new_coll.insert_batch(old_ids, old_vecs, old_metas)
-        new_coll.index.is_deleted = old_del
-
-    state.collection = new_coll
-    state.hybrid_retriever.collection = new_coll
-    state.collection.save()
-    state.cache.clear()
+    with state.writer_lock:
+        old = state.collection
+        ids, vectors, metadata = old.active_rows()
+        new_coll = Collection(
+            name=old.name,
+            dim=old.dim,
+            index_type=req.index_type,
+            metric=old.metric,
+            storage_engine=state.storage,
+        )
+        if ids:
+            new_coll.index.add_batch(ids, vectors, metadata)
+        new_coll.save()
+        state.collection = new_coll
+        state.hybrid_retriever.collection = new_coll
+        state.cache.clear()
 
     return {
         "status": "success",
@@ -317,10 +318,11 @@ def ingest_text(req: TextIngestRequest):
     ]
 
     embeddings = state.embedder.embed_texts(chunk_texts)
-    state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
-    rebuild_bm25_index()
-    state.collection.save()
-    state.cache.clear()
+    with state.writer_lock:
+        state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
+        rebuild_bm25_index()
+        state.collection.save()
+        state.cache.clear()
 
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
     return {
@@ -381,10 +383,11 @@ async def upload_file(
         ]
 
         embeddings = state.embedder.embed_texts(chunk_texts)
-        state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
-        rebuild_bm25_index()
-        state.collection.save()
-        state.cache.clear()
+        with state.writer_lock:
+            state.collection.insert_batch(chunk_ids, embeddings, chunk_metas)
+            rebuild_bm25_index()
+            state.collection.save()
+            state.cache.clear()
 
         return {
             "status": "success",
@@ -433,7 +436,7 @@ def search_dense(req: QueryRequest):
 def search_bm25(req: QueryRequest):
     """Pure BM25 keyword search."""
     t0 = time.perf_counter()
-    results = state.bm25.search(req.query, k=req.k)
+    results = state.bm25.search(req.query, k=req.k, filter_fn=compile_metadata_filter(req.filter))
     search_latency = (time.perf_counter() - t0) * 1000
 
     return {
@@ -611,17 +614,12 @@ def run_evaluation():
 
         # Hybrid search
         results = state.hybrid_retriever.search(question, k=10)
-        retrieved_source_ids = []
-        for r in results:
-            meta = r.get("metadata", {})
-            src = meta.get("id") or meta.get("source") or meta.get("file_path", "")
-            # Clean chunk id to base doc id
-            for gt in gt_ids:
-                if gt in src or gt in r.get("id", ""):
-                    retrieved_source_ids.append(gt)
-                    break
-            else:
-                retrieved_source_ids.append(src)
+        retrieved_source_ids = [
+            r["metadata"].get("metadata", {}).get("id")
+            or r["metadata"].get("id")
+            or r["id"]
+            for r in results
+        ]
 
         query_eval_results.append({
             "retrieved_ids": retrieved_source_ids,

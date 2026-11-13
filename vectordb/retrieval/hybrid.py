@@ -5,7 +5,7 @@ Implements Reciprocal Rank Fusion (RRF) and Convex Weighted Score Combination.
 
 from typing import List, Dict, Any, Optional, Literal
 import numpy as np
-from vectordb.core.collection import Collection
+from vectordb.core.collection import Collection, compile_metadata_filter
 from vectordb.retrieval.bm25 import BM25Index
 from vectordb.embeddings.embedder import Embedder
 
@@ -57,7 +57,7 @@ class HybridRetriever:
         dense_results = self.collection.query(query_vec, k=pool_size, filter=filter)
 
         # 2. BM25 Search
-        bm25_results = self.bm25.search(query, k=pool_size)
+        bm25_results = self.bm25.search(query, k=pool_size, filter_fn=compile_metadata_filter(filter))
 
         # Build candidate pools
         dense_rank_map = {res["id"]: (rank + 1, res) for rank, res in enumerate(dense_results)}

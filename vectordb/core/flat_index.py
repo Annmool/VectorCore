@@ -7,6 +7,7 @@ Supports pre-filtering and post-filtering on metadata.
 from typing import List, Dict, Any, Tuple, Optional, Callable
 import numpy as np
 from vectordb.core.distance import compute_distance, MetricType, distance_to_score
+from vectordb.core.distance import validate_batch, validate_vectors
 
 
 class FlatIndex:
@@ -29,15 +30,16 @@ class FlatIndex:
 
     def add(self, id: str, vector: np.ndarray, meta: Optional[Dict[str, Any]] = None) -> int:
         """Add a single vector with id and metadata."""
+        vector = validate_vectors(vector, self.dim, self.metric, ndim=1)
         if id in self.id_to_idx:
             idx = self.id_to_idx[id]
-            self.vectors[idx] = np.asarray(vector, dtype=np.float32)
+            self.vectors[idx] = vector
             self.metadata[idx] = meta or {}
             self.is_deleted[idx] = False
             return idx
 
         idx = len(self.ids)
-        vec = np.asarray(vector, dtype=np.float32).reshape(1, self.dim)
+        vec = vector.reshape(1, self.dim)
         if len(self.vectors) == 0:
             self.vectors = vec
         else:
@@ -56,9 +58,7 @@ class FlatIndex:
         metadatas: Optional[List[Dict[str, Any]]] = None,
     ) -> List[int]:
         """Add a batch of vectors and metadata."""
-        vectors = np.asarray(vectors, dtype=np.float32)
-        if vectors.ndim == 1:
-            vectors = vectors.reshape(1, -1)
+        vectors = validate_batch(ids, vectors, metadatas, self.dim, self.metric)
 
         if metadatas is None:
             metadatas = [{} for _ in range(len(ids))]
@@ -117,7 +117,7 @@ class FlatIndex:
         if len(self.ids) == 0:
             return []
 
-        query = np.asarray(query, dtype=np.float32).flatten()
+        query = validate_vectors(query, self.dim, self.metric, ndim=1)
         
         # Valid active indices
         active_mask = ~np.array(self.is_deleted, dtype=bool)

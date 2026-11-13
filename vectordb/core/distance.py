@@ -11,6 +11,35 @@ MetricType = Literal["cosine", "l2", "dot", "manhattan"]
 EPSILON = 1e-10
 
 
+def validate_vectors(vectors, dim, metric, *, ndim):
+    """Validate float32 input before changing index state."""
+    array = np.asarray(vectors, dtype=np.float32)
+    if array.ndim != ndim or array.shape[-1] != dim:
+        raise ValueError(f"Expected {ndim}-D input with vector dimension {dim}.")
+    if not np.isfinite(array).all():
+        raise ValueError("Vectors must contain only finite values.")
+    if metric == "cosine":
+        norms = np.linalg.norm(array, axis=-1)
+        if np.any(norms == 0) or not np.isfinite(norms).all():
+            raise ValueError("Cosine vectors must have a finite, nonzero norm.")
+    return array
+
+
+def validate_batch(ids, vectors, metadatas, dim, metric):
+    """Check batch alignment and reject ambiguous duplicate IDs."""
+    vectors = np.asarray(vectors, dtype=np.float32)
+    if not len(ids) and vectors.shape == (0,):
+        vectors = vectors.reshape(0, dim)
+    if len(ids) == 1 and vectors.ndim == 1:
+        vectors = vectors.reshape(1, -1)
+    vectors = validate_vectors(vectors, dim, metric, ndim=2)
+    if len(ids) != len(vectors) or (metadatas is not None and len(ids) != len(metadatas)):
+        raise ValueError("IDs, vectors, and metadata must have matching lengths.")
+    if len(set(ids)) != len(ids):
+        raise ValueError("Batch IDs must be unique.")
+    return vectors
+
+
 def normalize_vector(v: np.ndarray) -> np.ndarray:
     """Normalize a vector or 2D matrix of vectors along the last axis to unit L2 norm."""
     norm = np.linalg.norm(v, axis=-1, keepdims=True)

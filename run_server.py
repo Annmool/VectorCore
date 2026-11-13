@@ -14,7 +14,7 @@ if __name__ == "__main__":
     print(" VectorCore: Mini Vector Database & RAG Engine")
     print(" Built From Scratch with HNSW, IVF, BM25, RRF & Citations")
     print("=" * 60)
-    host = os.environ.get("HOST", "0.0.0.0")
+    host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", 8000))
     display_host = "localhost" if host == "0.0.0.0" else host
     print(f" Server running at: http://{display_host}:{port}")

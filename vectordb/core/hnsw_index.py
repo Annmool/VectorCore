@@ -11,6 +11,7 @@ from collections import deque
 from typing import List, Dict, Any, Tuple, Set, Optional, Callable
 import numpy as np
 from vectordb.core.distance import compute_distance, MetricType, distance_to_score
+from vectordb.core.distance import validate_batch, validate_vectors
 
 
 class HNSWIndex:
@@ -323,7 +324,7 @@ class HNSWIndex:
     def add(self, id: str, vector: np.ndarray, meta: Optional[Dict[str, Any]] = None) -> int:
         """Insert a vector into the HNSW graph."""
         with self._lock:
-            raw_vector = np.asarray(vector, dtype=np.float32).flatten()
+            raw_vector = validate_vectors(vector, self.dim, self.metric, ndim=1)
             norm_vector = self._normalize_vec(raw_vector)
 
             if id in self.id_to_idx:
@@ -455,7 +456,7 @@ class HNSWIndex:
     ) -> List[int]:
         """Add a batch of vectors to HNSW graph."""
         with self._lock:
-            vectors = np.asarray(vectors, dtype=np.float32)
+            vectors = validate_batch(ids, vectors, metadatas, self.dim, self.metric)
             if metadatas is None:
                 metadatas = [{} for _ in range(len(ids))]
             indices = []
@@ -529,7 +530,7 @@ class HNSWIndex:
             if active_count == 0:
                 return []
 
-            query_raw = np.asarray(query, dtype=np.float32).flatten()
+            query_raw = validate_vectors(query, self.dim, self.metric, ndim=1)
             query_norm = self._normalize_vec(query_raw)
 
             # If filter is provided, check selectivity
@@ -624,7 +625,7 @@ class HNSWIndex:
             if active_count == 0:
                 return {"steps": [], "results": [], "total_hops": 0}
 
-            query_raw = np.asarray(query, dtype=np.float32).flatten()
+            query_raw = validate_vectors(query, self.dim, self.metric, ndim=1)
             query_norm = self._normalize_vec(query_raw)
 
             steps = []
